@@ -59,7 +59,7 @@
             <!-- DATA SOURCE FILE UPLOADS -->
             <section class="bg-slate-800 rounded-lg p-6 border border-slate-700 shadow-xl space-y-4">
                 <h2 class="text-xl font-bold text-white mb-2" id="document_panel_title">Mandatory SRA Document Batch Collection</h2>
-                <p class="text-xs text-slate-400 mb-4" id="template_notif_hint">Note: Base template file loaded automatically from repository path <code class="text-blue-400">new SRA report template.docx</code>.</p>
+                <p class="text-xs text-slate-400 mb-4" id="template_notif_hint">Note: Base template file loaded automatically from repository path <code class="text-blue-400">new SRA template.docx</code>.</p>
                 
                 <div class="space-y-4">
                     <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
@@ -150,7 +150,7 @@
                 planGroup.classList.remove('hidden');
                 codeGroup.classList.remove('hidden');
                 title.innerText = "Mandatory SRA Document Collection";
-                hint.innerHTML = 'Note: Base template file loaded automatically from repository path <code class="text-blue-400">new SRA report template.docx</code>.';
+                hint.innerHTML = 'Note: Base template file loaded automatically from repository path <code class="text-blue-400">new SRA template.docx</code>.';
             } else if (pipeline === 'sa') {
                 tabSa.className = "px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400 transition-all duration-200";
                 planGroup.classList.add('hidden');
@@ -394,10 +394,10 @@ def process_wab_pointer_replacements(doc, wab_data):
             const computedDateText = `${monthText} ${yearText}`;
             const computedDateNumeric = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${yearText}`;
 
-            logToConsole("Fetching repository base template 'new SRA report template.docx'...");
+            logToConsole("Fetching repository base template 'new SRA template.docx'...");
             try {
-                const response = await fetch("./new%20SRA%20report%20template.docx");
-                if (!response.ok) throw new Error("Repository Template Missing: Ensure 'new SRA report template.docx' is present in repo root.");
+                const response = await fetch("./new%20SRA%20template.docx");
+                if (!response.ok) throw new Error("Repository Template Missing: Ensure 'new SRA template.docx' is present in repo root.");
                 const templateData = new Uint8Array(await response.arrayBuffer());
                 
                 try { pyodideModule.FS.unlink("sra_template.docx"); } catch(e){}
