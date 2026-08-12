@@ -116,7 +116,8 @@
                 pyodideModule = await loadPyodide();
                 
                 logToConsole("Configuring package distribution bootstrap manager (micropip)...");
-                await pyodideModule.loadPackage(["micropip", "pandas"]);
+                // Optimization: Removed pandas (~25MB download)[cite: 15]
+                await pyodideModule.loadPackage(["micropip"]);
                 
                 logToConsole("Auto-installing file pipeline packages (openpyxl, python-docx)...");
                 await pyodideModule.runPythonAsync(`
@@ -215,6 +216,15 @@ from docx import Document
 doc = Document("temp_wab.docx")
 full_text = "\\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
 
+# Include WAB table content to locate Section 2.2 system lists[cite: 15]
+table_texts = []
+for tbl in doc.tables:
+    for row in tbl.rows:
+        row_str = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
+        if row_str:
+            table_texts.append(row_str)
+full_wab_content = full_text + "\\n" + "\\n".join(table_texts)
+
 testee_name, testee_abbr, system_name, system_abbr = "", "", "", ""
 
 dept_match = re.search(r'([A-Z][A-Za-z\\s&]{3,60}?)\\s*[\\(\\“"]+([A-Z]{2,10})[\\)\\”"]+', full_text)
@@ -228,10 +238,21 @@ else:
         abbr_m = re.search(r'\\b([A-Z]{2,10})\\b', testee_name)
         if abbr_m: testee_abbr = abbr_m.group(1)
 
+# Check paragraph match first
 sys_match = re.search(r'(?:System Name|Target System|Information System)\\s*[:|-]\\s*([A-Za-z0-9\\s\\-_]+?)(?:\\s*[\\(\\“"]+([A-Z0-9]{2,10})[\\)\\”"]+|$)', full_text, re.IGNORECASE)
 if sys_match:
     system_name = sys_match.group(1).strip()
     if sys_match.group(2): system_abbr = sys_match.group(2).strip()
+
+# Fallback to WAB Section 2.2 Table search if empty[cite: 15]
+if not system_name:
+    sys_table_match = re.search(
+        r'(?:W\\d|S\\d)\\s*\\|\\s*([A-Za-z0-9\\s\\-\\/]+?)\\s*\\(([A-Z0-9]{2,10})\\)\\s*\\|\\s*Tier',
+        full_wab_content
+    )
+    if sys_table_match:
+        system_name = sys_table_match.group(1).strip()
+        system_abbr = sys_table_match.group(2).strip()
 
 import json
 json.dumps({"testee_name": testee_name, "testee_abbr": testee_abbr, "system_name": system_name, "system_abbr": system_abbr})
@@ -381,11 +402,13 @@ sys_display_name = system_name if system_name else extract_fallback_system_name(
 
 global_ops_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
 global_sam_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
-system_vulnerabilities = []
+
+# Fix B3: Separate Dicts for VA and Pentest findings[cite: 15]
+groups_va = {}
+groups_pt = {}
 system_code_reviews = []
 
 wb = load_workbook(JS_PLAN_FILE, data_only=True)
-groups_v = {}
 
 for sheet_name in wb.sheetnames:
     sheet = wb[sheet_name]
@@ -396,15 +419,16 @@ for sheet_name in wb.sheetnames:
         if not obs_num or obs_num.lower() in ["item", "no.", "observation", "ref"]: continue
 
         raw_ip = str(row[3]).strip() if row[3] is not None else ""
-        raw_port = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
+        raw_protocol = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
+        raw_port = str(row[5]).strip() if (len(row) > 5 and row[5] is not None) else ""  # Fix B6: Col index 5[cite: 15]
         
-        if obs_num.startswith("A"):
-            resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_display_name]
-        elif obs_num.startswith("V"):
-            resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+        if not obs_num.startswith(("V", "A")): continue
+
+        if obs_num.startswith("V"):
+            port_label = f":{raw_port}" if raw_port else ""
+            hosts = [f"{ip.strip()}{port_label}" for ip in raw_ip.split('\\n') if ip.strip()] or [sys_display_name]
         else:
-            context_prefix = f"[Obs #{obs_num}] " if obs_num else "[No Number] "
-            resolved_hosts = [context_prefix + (ip.strip() if ip.strip() else testee_abbr) for ip in raw_ip.split('\\n')]
+            hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_display_name]
 
         vuln_name = str(row[8]).strip() if len(row) > 8 and row[8] is not None else "General System Finding"
         threat_desc = str(row[9]).strip() if len(row) > 9 and row[9] is not None else ""
@@ -415,16 +439,25 @@ for sheet_name in wb.sheetnames:
         sev_key = sev_title.lower() if sev_title.lower() in global_ops_metrics else "low"
         combined_risk_rating = "AOI" if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
         
+        target_dict = groups_va if obs_num.startswith("V") else groups_pt
         hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
-        if hash_key not in groups_v:
-            groups_v[hash_key] = {"locations": resolved_hosts, "name": vuln_name, "threat": threat_desc, "rating": combined_risk_rating, "fix": remediation}
+        
+        if hash_key not in target_dict:
+            target_dict[hash_key] = {"locations": hosts, "name": vuln_name, "threat": threat_desc, "rating": combined_risk_rating, "fix": remediation}
         else:
-            for host in resolved_hosts:
-                if host not in groups_v[hash_key]["locations"]: groups_v[hash_key]["locations"].append(host)
+            for host in hosts:
+                if host not in target_dict[hash_key]["locations"]: target_dict[hash_key]["locations"].append(host)
         global_ops_metrics[sev_key] += 1
 
-for item in groups_v.values():
-    system_vulnerabilities.append([sys_display_name, "\\n".join(item["locations"]), "Refer to Annex F", item["name"], item["threat"], item["rating"], item["fix"], ""])
+# Fix B2: Format exact 6-element list matching template columns[cite: 15]
+system_va_findings = [
+    [sys_display_name, "\\n".join(v["locations"]), v["name"], v["threat"], v["rating"], v["fix"]]
+    for v in groups_va.values()
+]
+system_pentest_findings = [
+    [sys_display_name, "\\n".join(v["locations"]), v["name"], v["threat"], v["rating"], v["fix"]]
+    for v in groups_pt.values()
+]
 
 wb_c = load_workbook(JS_CODE_FILE, data_only=True)
 for sheet_name in wb_c.sheetnames:
@@ -457,62 +490,108 @@ for sheet_name in wb_c.sheetnames:
     for item in groups_c.values():
         system_code_reviews.append([sys_display_name, "\\n".join(item["paths"]), item["name"], item["threat"], item["rating"], item["fix"]])
 
+total_findings = len(system_va_findings) + len(system_pentest_findings) + len(system_code_reviews)
+
+# Fix B4/B5: Complete placeholder regex table ordered by length[cite: 15]
 replacements = [
-    ("*company name* Limited", company_name), ("*company name*", company_name),
-    ("*testee name*", testee_name), ("testee name", testee_name),
-    ("*TESTEE ABBREVIATION*", testee_abbr), ("TESTEE ABBREVIATION", testee_abbr),
-    ("testee abbreviation", testee_abbr), ("*COMPANY ABBREVIATION*", company_abbr),
-    ("*system name*", sys_display_name), ("system name", sys_display_name),
-    ("*SYSTEM ABBREVIATION*", system_abbr), ("SYSTEM ABBREVIATION", system_abbr)
+    (r"\\*information system name \\(information system abbreviation\\)\\*", f"{sys_display_name} ({system_abbr})"),
+    (r"\\*testee name \\(testee abbreviation\\)\\*", f"{testee_name} ({testee_abbr})"),
+    (r"\\*company name \\(company abbreviation\\)\\*", f"{company_name} ({company_abbr})"),
+    (r"\\*information system name\\*", sys_display_name),
+    (r"\\*information system abbreviation\\*", system_abbr),
+    (r"\\*INFORMATION SYSTEM ABBREVIATION\\*", system_abbr.upper()),
+    (r"\\(INFORMATION SYSTEM ABBREVIATION\\)", f"({system_abbr.upper()})"),
+    (r"\\*testee name\\*", testee_name),
+    (r"\\*testee abbreviation\\*", testee_abbr),
+    (r"\\*TESTEE ABBREVIATION\\*", testee_abbr.upper()),
+    (r"\\*company name\\*", company_name),
+    (r"\\*company abbreviation\\*", company_abbr),
+    (r"\\*COMPANY ABBREVIATION\\*", company_abbr.upper()),
+    (r"\\*grand total items\\*", str(total_findings)),
+    (r"SunnyVision Limited", company_name)
 ]
 
 doc = Document("sra_template.docx")
 
-def synchronize_and_replace_dates(p, lookup_tuples):
+def apply_replacements(text):
+    for pattern, value in replacements:
+        text = re.sub(pattern, value if value else "", text, flags=re.IGNORECASE)
+    return text
+
+def synchronize_and_replace_dates(p):
     if p.style.name.startswith("Heading"): return
     full_text = "".join(run.text for run in p.runs)
     if not full_text.strip(): return
     modified = False
     
+    # Scope date replacements safely to placeholder structures
     if re.search(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', full_text):
         full_text = re.sub(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', current_date_numeric, full_text)
         modified = True
-    if re.search(r'\\b[A-Za-z]{3}\\s+\\d{4}\\b', full_text, re.IGNORECASE):
-        full_text = re.sub(r'\\b[A-Za-z]{3}\\s+\\d{4}\\b', current_date_text, full_text, flags=re.IGNORECASE)
+    
+    new_text = apply_replacements(full_text)
+    if new_text != full_text:
+        full_text = new_text
         modified = True
-    for k, val in lookup_tuples:
-        if k.lower() in full_text.lower():
-            full_text = re.sub(re.escape(k), val if val else "", full_text, flags=re.IGNORECASE)
-            modified = True
+
     if modified:
         if p.runs:
             p.runs[0].text = full_text
             for r in p.runs[1:]: r.text = ""
         else: p.text = full_text
 
-for p in list(doc.paragraphs): synchronize_and_replace_dates(p, replacements)
+for p in list(doc.paragraphs): synchronize_and_replace_dates(p)
+
+# Fix B1: Read Preceding Paragraph XML to locate finding sections reliably[cite: 15]
+def get_preceding_paragraph_text(table):
+    prev = table._tbl.getprevious()
+    while prev is not None:
+        tag = prev.tag.split('}')[-1]
+        if tag == 'p':
+            return ''.join(r.text for r in prev.iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t'))
+        if tag == 'tbl':
+            break
+        prev = prev.getprevious()
+    return ''
+
+findings_tables_va = []
+findings_tables_pt = []
+findings_tables_cr = []
 
 for table in doc.tables:
     if len(table.rows) == 0 or len(table.rows[0].cells) == 0: continue
     first_row_text = "".join(cell.text.lower() for cell in table.rows[0].cells)
+    
+    if "affected it systems" in first_row_text:
+        preceding = get_preceding_paragraph_text(table).lower()
+        if "11.1.1" in preceding or "vulnerability assessment" in preceding:
+            findings_tables_va.append(table)
+        elif "11.1.2" in preceding or "penetration test" in preceding:
+            findings_tables_pt.append(table)
+        elif "11.1.3" in preceding or "code review" in preceding:
+            findings_tables_cr.append(table)
+        else:
+            all_ft = findings_tables_va + findings_tables_pt + findings_tables_cr
+            if len(all_ft) == 0: findings_tables_va.append(table)
+            elif len(all_ft) == 1: findings_tables_pt.append(table)
+            else: findings_tables_cr.append(table)
+    else:
+        for row in table.rows:
+            for cell in row.cells:
+                for cell_p in cell.paragraphs: synchronize_and_replace_dates(cell_p)
 
-    if "affected it systems" in first_row_text and "asset value" in first_row_text:
-        for r_idx in range(len(table.rows) - 1, 0, -1): table._tbl.remove(table.rows[r_idx]._tr)
-        for f in system_vulnerabilities:
-            new_row = table.add_row()
-            for c_idx, val in enumerate(f): apply_text_styling_and_borders(new_row.cells[c_idx], val)
-        continue
+def fill_findings_table(target_table, rows_data):
+    for r_idx in range(len(target_table.rows) - 1, 0, -1):
+        target_table._tbl.remove(target_table.rows[r_idx]._tr)
+    for f in rows_data:
+        new_row = target_table.add_row()
+        for c_idx, val in enumerate(f):
+            if c_idx < len(new_row.cells):
+                apply_text_styling_and_borders(new_row.cells[c_idx], str(val))
 
-    if "affected it systems" in first_row_text and "asset value" not in first_row_text and "vulnerability" in first_row_text:
-        for r_idx in range(len(table.rows) - 1, 0, -1): table._tbl.remove(table.rows[r_idx]._tr)
-        for f in system_code_reviews:
-            new_row = table.add_row()
-            for c_idx, val in enumerate(f): apply_text_styling_and_borders(new_row.cells[c_idx], val)
-        continue
-
-    for row in table.rows:
-        for cell in row.cells:
-            for cell_p in cell.paragraphs: synchronize_and_replace_dates(cell_p, replacements)
+for t in findings_tables_va: fill_findings_table(t, system_va_findings)
+for t in findings_tables_pt: fill_findings_table(t, system_pentest_findings)
+for t in findings_tables_cr: fill_findings_table(t, system_code_reviews)
 
 for p in doc.paragraphs:
     for run in p.runs:
