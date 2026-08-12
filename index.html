@@ -209,10 +209,17 @@
 
             const script = `
 import re
+import json
 from docx import Document
 
 doc = Document("temp_wab.docx")
-full_text = "\\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
+paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+full_text = "\\n".join(paragraphs)
+
+# 1. ISOLATE THE TARGET SECURITY SECTION
+# Find the start of the Security-specific brief to avoid PIA or unrelated sections
+sra_match = re.search(r'(?i)(security\\s+risk\\s+assessment|security\\s+audit|IT\\s+security)', full_text)
+search_text = full_text[sra_match.start():] if sra_match else full_text
 
 table_texts = []
 for tbl in doc.tables:
@@ -220,35 +227,80 @@ for tbl in doc.tables:
         row_str = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
         if row_str:
             table_texts.append(row_str)
-full_wab_content = full_text + "\\n" + "\\n".join(table_texts)
+full_wab_content = search_text + "\\n" + "\\n".join(table_texts)
 
 testee_name, testee_abbr, system_name, system_abbr = "", "", "", ""
 
-dept_match = re.search(r'([A-Z][A-Za-z\\s&]{3,60}?)\\s*[\\(\\“"]+([A-Z]{2,10})[\\)\\”"]+', full_text)
+# 2. EXTRACT TESTEE NAME & ABBREVIATION
+# Look for patterns like "Education Bureau ("EDB")"
+dept_match = re.search(r'([A-Z][A-Za-z\\s&\\-]{5,80}?)\\s*[\\(\\“"”]+([A-Z]{2,10})[\\)\\”"”]+', search_text)
 if dept_match:
-    testee_name = dept_match.group(1).strip()
-    testee_abbr = dept_match.group(2).strip()
-else:
+    temp_name = dept_match.group(1).strip()
+    # Semantic exclusion to prevent capturing systems/programmes as departments
+    invalid_keywords = ["assessment", "programme", "system", "software", "platform", "project", "application", "audit"]
+    if not any(kw in temp_name.lower() for kw in invalid_keywords):
+        testee_name = temp_name
+        testee_abbr = dept_match.group(2).strip()
+
+# Fallback for Department Name (e.g., from Enquiries section)
+if not testee_name:
     label_match = re.search(r'(?:Bureau/Department|Department|Organisation)\\s*[:|-]\\s*([^\\n\\r]+)', full_text, re.IGNORECASE)
     if label_match:
         testee_name = label_match.group(1).strip()
         abbr_m = re.search(r'\\b([A-Z]{2,10})\\b', testee_name)
         if abbr_m: testee_abbr = abbr_m.group(1)
 
-sys_match = re.search(r'(?:System Name|Target System|Information System)\\s*[:|-]\\s*([A-Za-z0-9\\s\\-_]+?)(?:\\s*[\\(\\“"]+([A-Z0-9]{2,10})[\\)\\”"]+|$)', full_text, re.IGNORECASE)
+# 3. EXTRACT SYSTEM NAME & ABBREVIATION
+# Method A: Explicit labels
+sys_match = re.search(r'(?:System Name|Target System|Information System|Name of System)\\s*[:|-]\\s*([A-Za-z0-9\\s\\-_]+?)(?:\\s*[\\(\\“"”]+([A-Z0-9]{2,15})[\\)\\”"”]+|$)', full_wab_content, re.IGNORECASE)
 if sys_match:
     system_name = sys_match.group(1).strip()
-    if sys_match.group(2): system_abbr = sys_match.group(2).strip()
-
+    if sys_match.group(2): 
+        system_abbr = sys_match.group(2).strip()
+        
+# Method B: Tiering Tables (e.g. W1 | HR System (HRS) | Tier 2)
 if not system_name:
     sys_table_match = re.search(
-        r'(?:W\\d|S\\d)\\s*\\|\\s*([A-Za-z0-9\\s\\-\\/]+?)\\s*\\(([A-Z0-9]{2,10})\\)\\s*\\|\\s*Tier',
+        r'(?:W\\d|S\\d)\\s*\\|\\s*([A-Za-z0-9\\s\\-\\/]+?)\\s*\\(([A-Z0-9]{2,15})\\)\\s*\\|\\s*Tier',
         full_wab_content
     )
     if sys_table_match:
         system_name = sys_table_match.group(1).strip()
         system_abbr = sys_table_match.group(2).strip()
 
+# Method C: Inline definitions like "Coaching Programme on Executive Skills – Second Edition" (e-COPES)
+if not system_name:
+    inline_sys = re.search(r'[“"”]?([A-Z][a-zA-Z0-9\\s\\-\\–\\—]+?)[“"”]?\\s*[\\(\\“"”]+([a-zA-Z0-9\\-]{2,15})[\\)\\”"”]+', search_text)
+    if inline_sys:
+        temp_sys = inline_sys.group(1).strip()
+        temp_abbr = inline_sys.group(2).strip()
+        # Ensure it's not the department abbreviation we already found
+        if temp_abbr != testee_abbr and testee_name != temp_sys:
+            system_name = temp_sys
+            system_abbr = temp_abbr
+
+# Final Clean-up for stray newline characters or tabs
+if system_name: system_name = re.sub(r'[\\r\\n\\t]', ' ', system_name).strip()
+if system_abbr: system_abbr = re.sub(r'[\\r\\n\\t]', '', system_abbr).strip()
+if testee_name: testee_name = re.sub(r'[\\r\\n\\t]', ' ', testee_name).strip()
+if testee_abbr: testee_abbr = re.sub(r'[\\r\\n\\t]', '', testee_abbr).strip()
+
+json.dumps({"testee_name": testee_name, "testee_abbr": testee_abbr, "system_name": system_name, "system_abbr": system_abbr})
+`;
+            try {
+                const resJson = await pyodideModule.runPythonAsync(script);
+                const metadata = JSON.parse(resJson);
+                
+                if (metadata.testee_name) document.getElementById("testee_name").value = metadata.testee_name;
+                if (metadata.testee_abbr) document.getElementById("testee_abbr").value = metadata.testee_abbr;
+                if (metadata.system_name) document.getElementById("system_name").value = metadata.system_name;
+                if (metadata.system_abbr) document.getElementById("system_abbr").value = metadata.system_abbr;
+                
+                logToConsole("Metadata auto-extraction completed successfully.");
+            } catch(e) {
+                logToConsole("Notice: Metadata auto-extraction completed with partial matches.");
+            }
+        }
 import json
 json.dumps({"testee_name": testee_name, "testee_abbr": testee_abbr, "system_name": system_name, "system_abbr": system_abbr})
 `;
