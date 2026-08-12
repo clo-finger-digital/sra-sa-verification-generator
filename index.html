@@ -13,7 +13,7 @@
     <div class="max-w-4xl mx-auto px-4 py-12">
         <header class="border-b border-slate-800 pb-6 mb-8">
             <h1 class="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">Single-System SRAA Hub</h1>
-            <p class="mt-2 text-sm text-slate-400">Generate single-system SRA, SA, or Verification Reports completely in-browser via WebAssembly[cite: 5, 6, 7].</p>
+            <p class="mt-2 text-sm text-slate-400">Generate single-system SRA, SA, or Verification Reports completely in-browser via WebAssembly.</p>
         </header>
 
         <!-- PIPELINE NAVIGATION TABS -->
@@ -80,7 +80,6 @@
                         <input type="file" id="file_wab" accept=".docx" onchange="autoExtractMetadata(this)" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
                     </div>
                     
-                    <!-- Shared Sheet Uploads -->
                     <div id="plan_group" class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
                         <label class="block text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">(2) Follow-Up Plan Spreadsheet (.xlsx) *Required</label>
                         <input type="file" id="files_plan" accept=".xlsx" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
@@ -116,7 +115,6 @@
                 pyodideModule = await loadPyodide();
                 
                 logToConsole("Configuring package distribution bootstrap manager (micropip)...");
-                // Optimization: Removed pandas (~25MB download)[cite: 15]
                 await pyodideModule.loadPackage(["micropip"]);
                 
                 logToConsole("Auto-installing file pipeline packages (openpyxl, python-docx)...");
@@ -169,14 +167,14 @@
                 tabSa.className = "px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400 transition-all duration-200";
                 planGroup.classList.add('hidden');
                 codeGroup.classList.add('hidden');
-                title.innerText = "Mandatory Single-System SA Document Collection (WAB Only)[cite: 6]";
-                hint.innerHTML = 'Note: Template must be tracked in repository as <code class="text-blue-400">SA template.docx</code>[cite: 7].';
+                title.innerText = "Mandatory Single-System SA Document Collection (WAB Only)";
+                hint.innerHTML = 'Note: Template must be tracked in repository as <code class="text-blue-400">SA template.docx</code>.';
             } else if (pipeline === 'vr') {
                 tabVr.className = "px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400 transition-all duration-200";
                 planGroup.classList.remove('hidden');
                 codeGroup.classList.remove('hidden');
-                title.innerText = "Mandatory Single-System Verification Document Collection[cite: 8]";
-                hint.innerHTML = 'Note: Template must be tracked in repository as <code class="text-blue-400">verification template.docx</code>[cite: 8].';
+                title.innerText = "Mandatory Single-System Verification Document Collection";
+                hint.innerHTML = 'Note: Template must be tracked in repository as <code class="text-blue-400">verification template.docx</code>.';
             }
             updateButtonLabel();
         }
@@ -216,7 +214,6 @@ from docx import Document
 doc = Document("temp_wab.docx")
 full_text = "\\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
 
-# Include WAB table content to locate Section 2.2 system lists[cite: 15]
 table_texts = []
 for tbl in doc.tables:
     for row in tbl.rows:
@@ -238,13 +235,11 @@ else:
         abbr_m = re.search(r'\\b([A-Z]{2,10})\\b', testee_name)
         if abbr_m: testee_abbr = abbr_m.group(1)
 
-# Check paragraph match first
 sys_match = re.search(r'(?:System Name|Target System|Information System)\\s*[:|-]\\s*([A-Za-z0-9\\s\\-_]+?)(?:\\s*[\\(\\“"]+([A-Z0-9]{2,10})[\\)\\”"]+|$)', full_text, re.IGNORECASE)
 if sys_match:
     system_name = sys_match.group(1).strip()
     if sys_match.group(2): system_abbr = sys_match.group(2).strip()
 
-# Fallback to WAB Section 2.2 Table search if empty[cite: 15]
 if not system_name:
     sys_table_match = re.search(
         r'(?:W\\d|S\\d)\\s*\\|\\s*([A-Za-z0-9\\s\\-\\/]+?)\\s*\\(([A-Z0-9]{2,10})\\)\\s*\\|\\s*Tier',
@@ -257,7 +252,6 @@ if not system_name:
 import json
 json.dumps({"testee_name": testee_name, "testee_abbr": testee_abbr, "system_name": system_name, "system_abbr": system_abbr})
 `;
-
             try {
                 const resJson = await pyodideModule.runPythonAsync(script);
                 const metadata = JSON.parse(resJson);
@@ -271,6 +265,32 @@ json.dumps({"testee_name": testee_name, "testee_abbr": testee_abbr, "system_name
             } catch(e) {
                 logToConsole("Notice: Metadata auto-extraction completed with partial matches.");
             }
+        }
+
+        // Standardized Current Date formatting
+        function getFormattingDates() {
+            const today = new Date();
+            // e.g. "August" not "AUGUST", to cleanly replace "May 2026"
+            const monthText = today.toLocaleDateString("en-US", { month: "long" });
+            const yearText = today.getFullYear();
+            const computedDateText = `${monthText} ${yearText}`;
+            const computedDateNumeric = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${yearText}`;
+            return { computedDateText, computedDateNumeric };
+        }
+
+        function setPythonGlobals(cName, cAbbr, tName, tAbbr, sysNameInput, sysAbbrInput, iWabName, iPlanName, iCodeName) {
+            const dates = getFormattingDates();
+            pyodideModule.globals.set("JS_COMPANY_NAME", cName);
+            pyodideModule.globals.set("JS_COMPANY_ABBREVIATION", cAbbr);
+            pyodideModule.globals.set("JS_TESTEE_NAME", tName);
+            pyodideModule.globals.set("JS_TESTEE_ABBREVIATION", tAbbr);
+            pyodideModule.globals.set("JS_SYSTEM_NAME", sysNameInput);
+            pyodideModule.globals.set("JS_SYSTEM_ABBREVIATION", sysAbbrInput);
+            pyodideModule.globals.set("JS_WAB_NAME", iWabName);
+            pyodideModule.globals.set("JS_PLAN_FILE", iPlanName);
+            pyodideModule.globals.set("JS_CODE_FILE", iCodeName);
+            pyodideModule.globals.set("JS_COMPUTED_DATE_TEXT", dates.computedDateText);
+            pyodideModule.globals.set("JS_COMPUTED_DATE_NUMERIC", dates.computedDateNumeric);
         }
 
         function triggerActivePipeline() {
@@ -302,12 +322,6 @@ json.dumps({"testee_name": testee_name, "testee_abbr": testee_abbr, "system_name
                 return;
             }
 
-            const today = new Date();
-            const monthText = today.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
-            const yearText = today.getFullYear();
-            const computedDateText = `${monthText} ${yearText}`;
-            const computedDateNumeric = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${yearText}`;
-
             logToConsole("Fetching base 'new SRA template.docx'...");
             try {
                 const response = await fetch("./new%20SRA%20template.docx");
@@ -323,29 +337,23 @@ json.dumps({"testee_name": testee_name, "testee_abbr": testee_abbr, "system_name
 
             try { pyodideModule.FS.unlink(iWab.name); } catch(e) {}
             pyodideModule.FS.writeFile(iWab.name, iWab.data);
-
             try { pyodideModule.FS.unlink(iPlan.name); } catch(e) {}
             pyodideModule.FS.writeFile(iPlan.name, iPlan.data);
-
             try { pyodideModule.FS.unlink(iCode.name); } catch(e) {}
             pyodideModule.FS.writeFile(iCode.name, iCode.data);
 
-            pyodideModule.globals.set("JS_COMPANY_NAME", cName);
-            pyodideModule.globals.set("JS_COMPANY_ABBREVIATION", cAbbr);
-            pyodideModule.globals.set("JS_TESTEE_NAME", tName);
-            pyodideModule.globals.set("JS_TESTEE_ABBREVIATION", tAbbr);
-            pyodideModule.globals.set("JS_SYSTEM_NAME", sysNameInput);
-            pyodideModule.globals.set("JS_SYSTEM_ABBREVIATION", sysAbbrInput);
-            pyodideModule.globals.set("JS_WAB_NAME", iWab.name);
-            pyodideModule.globals.set("JS_PLAN_FILE", iPlan.name);
-            pyodideModule.globals.set("JS_CODE_FILE", iCode.name);
-            pyodideModule.globals.set("JS_COMPUTED_DATE_TEXT", computedDateText);
-            pyodideModule.globals.set("JS_COMPUTED_DATE_NUMERIC", computedDateNumeric);
+            setPythonGlobals(cName, cAbbr, tName, tAbbr, sysNameInput, sysAbbrInput, iWab.name, iPlan.name, iCode.name);
 
             const pythonScript = `
 import os
 import sys
 import re
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from openpyxl import load_workbook
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 class BrowserLogRedirect:
     def write(self, s):
@@ -355,13 +363,6 @@ class BrowserLogRedirect:
 
 sys.stdout = BrowserLogRedirect()
 sys.stderr = BrowserLogRedirect()
-
-from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from openpyxl import load_workbook
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
 
 company_name = JS_COMPANY_NAME
 company_abbr = JS_COMPANY_ABBREVIATION
@@ -403,7 +404,6 @@ sys_display_name = system_name if system_name else extract_fallback_system_name(
 global_ops_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
 global_sam_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
 
-# Fix B3: Separate Dicts for VA and Pentest findings[cite: 15]
 groups_va = {}
 groups_pt = {}
 system_code_reviews = []
@@ -419,8 +419,7 @@ for sheet_name in wb.sheetnames:
         if not obs_num or obs_num.lower() in ["item", "no.", "observation", "ref"]: continue
 
         raw_ip = str(row[3]).strip() if row[3] is not None else ""
-        raw_protocol = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
-        raw_port = str(row[5]).strip() if (len(row) > 5 and row[5] is not None) else ""  # Fix B6: Col index 5[cite: 15]
+        raw_port = str(row[5]).strip() if (len(row) > 5 and row[5] is not None) else ""
         
         if not obs_num.startswith(("V", "A")): continue
 
@@ -449,7 +448,6 @@ for sheet_name in wb.sheetnames:
                 if host not in target_dict[hash_key]["locations"]: target_dict[hash_key]["locations"].append(host)
         global_ops_metrics[sev_key] += 1
 
-# Fix B2: Format exact 6-element list matching template columns[cite: 15]
 system_va_findings = [
     [sys_display_name, "\\n".join(v["locations"]), v["name"], v["threat"], v["rating"], v["fix"]]
     for v in groups_va.values()
@@ -492,7 +490,6 @@ for sheet_name in wb_c.sheetnames:
 
 total_findings = len(system_va_findings) + len(system_pentest_findings) + len(system_code_reviews)
 
-# Fix B4/B5: Complete placeholder regex table ordered by length[cite: 15]
 replacements = [
     (r"\\*information system name \\(information system abbreviation\\)\\*", f"{sys_display_name} ({system_abbr})"),
     (r"\\*testee name \\(testee abbreviation\\)\\*", f"{testee_name} ({testee_abbr})"),
@@ -524,11 +521,18 @@ def synchronize_and_replace_dates(p):
     if not full_text.strip(): return
     modified = False
     
-    # Scope date replacements safely to placeholder structures
-    if re.search(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', full_text):
-        full_text = re.sub(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', current_date_numeric, full_text)
+    # 1. Aggressive replacement for numeric dates (e.g., 28-05-2026 -> current_date_numeric)
+    if re.search(r'\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}\\b', full_text):
+        full_text = re.sub(r'\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}\\b', current_date_numeric, full_text)
+        modified = True
+        
+    # 2. Aggressive replacement for Month YYYY text dates (e.g., May 2026 -> current_date_text)
+    month_pattern = r'\\b(?:January|February|March|April|May|June|July|August|September|October|November|December|[A-Za-z]{3})\\s+\\d{4}\\b'
+    if re.search(month_pattern, full_text, re.IGNORECASE):
+        full_text = re.sub(month_pattern, current_date_text, full_text, flags=re.IGNORECASE)
         modified = True
     
+    # 3. Standard Placeholders
     new_text = apply_replacements(full_text)
     if new_text != full_text:
         full_text = new_text
@@ -542,7 +546,6 @@ def synchronize_and_replace_dates(p):
 
 for p in list(doc.paragraphs): synchronize_and_replace_dates(p)
 
-# Fix B1: Read Preceding Paragraph XML to locate finding sections reliably[cite: 15]
 def get_preceding_paragraph_text(table):
     prev = table._tbl.getprevious()
     while prev is not None:
@@ -619,7 +622,7 @@ print("Single-System SRA Task Completed.")
         }
 
         // ==========================================
-        // PIPELINE 2: SINGLE SYSTEM SA GENERATION[cite: 6, 7]
+        // PIPELINE 2: SINGLE SYSTEM SA GENERATION
         // ==========================================
         async function executeSAPipeline() {
             if (!pyodideModule) return;
@@ -638,12 +641,6 @@ print("Single-System SRA Task Completed.")
                 return;
             }
 
-            const today = new Date();
-            const monthText = today.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
-            const yearText = today.getFullYear();
-            const computedDateText = `${monthText} ${yearText}`;
-            const computedDateNumeric = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${yearText}`;
-
             logToConsole("Fetching base 'SA template.docx'...");
             try {
                 const response = await fetch("./SA%20template.docx");
@@ -660,20 +657,17 @@ print("Single-System SRA Task Completed.")
             try { pyodideModule.FS.unlink(iWab.name); } catch(e) {}
             pyodideModule.FS.writeFile(iWab.name, iWab.data);
 
-            pyodideModule.globals.set("JS_COMPANY_NAME", cName);
-            pyodideModule.globals.set("JS_COMPANY_ABBREVIATION", cAbbr);
-            pyodideModule.globals.set("JS_TESTEE_NAME", tName);
-            pyodideModule.globals.set("JS_TESTEE_ABBREVIATION", tAbbr);
-            pyodideModule.globals.set("JS_SYSTEM_NAME", sysNameInput);
-            pyodideModule.globals.set("JS_SYSTEM_ABBREVIATION", sysAbbrInput);
-            pyodideModule.globals.set("JS_WAB_NAME", iWab.name);
-            pyodideModule.globals.set("JS_COMPUTED_DATE_TEXT", computedDateText);
-            pyodideModule.globals.set("JS_COMPUTED_DATE_NUMERIC", computedDateNumeric);
+            setPythonGlobals(cName, cAbbr, tName, tAbbr, sysNameInput, sysAbbrInput, iWab.name, "", "");
 
             const pythonScript = `
 import os
 import sys
 import re
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 class BrowserLogRedirect:
     def write(self, s):
@@ -683,12 +677,6 @@ class BrowserLogRedirect:
 
 sys.stdout = BrowserLogRedirect()
 sys.stderr = BrowserLogRedirect()
-
-from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
 
 company_name = JS_COMPANY_NAME
 company_abbr = JS_COMPANY_ABBREVIATION
@@ -700,43 +688,63 @@ current_date_text = JS_COMPUTED_DATE_TEXT
 current_date_numeric = JS_COMPUTED_DATE_NUMERIC
 
 replacements = [
-    ("*company name* Limited", company_name), ("*company name*", company_name),
-    ("*testee name*", testee_name), ("testee name", testee_name),
-    ("*TESTEE ABBREVIATION*", testee_abbr), ("TESTEE ABBREVIATION", testee_abbr),
-    ("testee abbreviation", testee_abbr), ("*COMPANY ABBREVIATION*", company_abbr),
-    ("*system name*", system_name), ("system name", system_name),
-    ("*SYSTEM ABBREVIATION*", system_abbr), ("SYSTEM ABBREVIATION", system_abbr)
+    (r"\\*information system name \\(information system abbreviation\\)\\*", f"{system_name} ({system_abbr})"),
+    (r"\\*testee name \\(testee abbreviation\\)\\*", f"{testee_name} ({testee_abbr})"),
+    (r"\\*company name \\(company abbreviation\\)\\*", f"{company_name} ({company_abbr})"),
+    (r"\\*information system name\\*", system_name),
+    (r"\\*information system abbreviation\\*", system_abbr),
+    (r"\\*INFORMATION SYSTEM ABBREVIATION\\*", system_abbr.upper()),
+    (r"\\(INFORMATION SYSTEM ABBREVIATION\\)", f"({system_abbr.upper()})"),
+    (r"\\*testee name\\*", testee_name),
+    (r"\\*testee abbreviation\\*", testee_abbr),
+    (r"\\*TESTEE ABBREVIATION\\*", testee_abbr.upper()),
+    (r"\\*company name\\*", company_name),
+    (r"\\*company abbreviation\\*", company_abbr),
+    (r"\\*COMPANY ABBREVIATION\\*", company_abbr.upper())
 ]
 
 doc = Document("sa_template.docx")
 
-def synchronize_and_replace_dates(p, lookup_tuples):
+def apply_replacements(text):
+    for pattern, value in replacements:
+        text = re.sub(pattern, value if value else "", text, flags=re.IGNORECASE)
+    return text
+
+def synchronize_and_replace_dates(p):
     if p.style.name.startswith("Heading"): return
     full_text = "".join(run.text for run in p.runs)
     if not full_text.strip(): return
     modified = False
-    if re.search(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', full_text):
-        full_text = re.sub(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', current_date_numeric, full_text)
+    
+    # 1. Aggressive Numeric Dates
+    if re.search(r'\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}\\b', full_text):
+        full_text = re.sub(r'\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}\\b', current_date_numeric, full_text)
         modified = True
-    if re.search(r'\\b[A-Za-z]{3}\\s+\\d{4}\\b', full_text, re.IGNORECASE):
-        full_text = re.sub(r'\\b[A-Za-z]{3}\\s+\\d{4}\\b', current_date_text, full_text, flags=re.IGNORECASE)
+        
+    # 2. Aggressive Text Dates
+    month_pattern = r'\\b(?:January|February|March|April|May|June|July|August|September|October|November|December|[A-Za-z]{3})\\s+\\d{4}\\b'
+    if re.search(month_pattern, full_text, re.IGNORECASE):
+        full_text = re.sub(month_pattern, current_date_text, full_text, flags=re.IGNORECASE)
         modified = True
-    for k, val in lookup_tuples:
-        if k.lower() in full_text.lower():
-            full_text = re.sub(re.escape(k), val if val else "", full_text, flags=re.IGNORECASE)
-            modified = True
+    
+    # 3. Apply standard placeholders
+    new_text = apply_replacements(full_text)
+    if new_text != full_text:
+        full_text = new_text
+        modified = True
+
     if modified:
         if p.runs:
             p.runs[0].text = full_text
             for r in p.runs[1:]: r.text = ""
         else: p.text = full_text
 
-for p in list(doc.paragraphs): synchronize_and_replace_dates(p, replacements)
+for p in list(doc.paragraphs): synchronize_and_replace_dates(p)
 
 for table in doc.tables:
     for row in table.rows:
         for cell in row.cells:
-            for cell_p in cell.paragraphs: synchronize_and_replace_dates(cell_p, replacements)
+            for cell_p in cell.paragraphs: synchronize_and_replace_dates(cell_p)
 
 for p in doc.paragraphs:
     for run in p.runs:
@@ -786,12 +794,6 @@ print("Single-System SA Task Completed.")
                 return;
             }
 
-            const today = new Date();
-            const monthText = today.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
-            const yearText = today.getFullYear();
-            const computedDateText = `${monthText} ${yearText}`;
-            const computedDateNumeric = `${String(today.getDate()).padStart(2, '0')}-${String(today.getMonth() + 1).padStart(2, '0')}-${yearText}`;
-
             logToConsole("Fetching base 'verification template.docx'...");
             try {
                 const response = await fetch("./verification%20template.docx");
@@ -807,29 +809,23 @@ print("Single-System SA Task Completed.")
 
             try { pyodideModule.FS.unlink(iWab.name); } catch(e) {}
             pyodideModule.FS.writeFile(iWab.name, iWab.data);
-
             try { pyodideModule.FS.unlink(iPlan.name); } catch(e) {}
             pyodideModule.FS.writeFile(iPlan.name, iPlan.data);
-
             try { pyodideModule.FS.unlink(iCode.name); } catch(e) {}
             pyodideModule.FS.writeFile(iCode.name, iCode.data);
 
-            pyodideModule.globals.set("JS_COMPANY_NAME", cName);
-            pyodideModule.globals.set("JS_COMPANY_ABBREVIATION", cAbbr);
-            pyodideModule.globals.set("JS_TESTEE_NAME", tName);
-            pyodideModule.globals.set("JS_TESTEE_ABBREVIATION", tAbbr);
-            pyodideModule.globals.set("JS_SYSTEM_NAME", sysNameInput);
-            pyodideModule.globals.set("JS_SYSTEM_ABBREVIATION", sysAbbrInput);
-            pyodideModule.globals.set("JS_WAB_NAME", iWab.name);
-            pyodideModule.globals.set("JS_PLAN_FILE", iPlan.name);
-            pyodideModule.globals.set("JS_CODE_FILE", iCode.name);
-            pyodideModule.globals.set("JS_COMPUTED_DATE_TEXT", computedDateText);
-            pyodideModule.globals.set("JS_COMPUTED_DATE_NUMERIC", computedDateNumeric);
+            setPythonGlobals(cName, cAbbr, tName, tAbbr, sysNameInput, sysAbbrInput, iWab.name, iPlan.name, iCode.name);
 
             const pythonScript = `
 import os
 import sys
 import re
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from openpyxl import load_workbook
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 class BrowserLogRedirect:
     def write(self, s):
@@ -839,13 +835,6 @@ class BrowserLogRedirect:
 
 sys.stdout = BrowserLogRedirect()
 sys.stderr = BrowserLogRedirect()
-
-from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from openpyxl import load_workbook
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
 
 company_name = JS_COMPANY_NAME
 company_abbr = JS_COMPANY_ABBREVIATION
@@ -884,33 +873,23 @@ def extract_fallback_system_name(filename):
 
 sys_display_name = system_name if system_name else extract_fallback_system_name(JS_PLAN_FILE)
 
-ops_metrics = {"mitigated": 0, "in_progress": 0, "accepted": 0}
-sam_metrics = {"mitigated": 0, "in_progress": 0, "accepted": 0}
-
-system_vulnerabilities = []
-system_code_reviews = []
-
 def parse_verification_status(row_cells):
     for cell in row_cells:
         if cell is None: continue
         val_lower = str(cell).lower().strip()
         if "mitigated" in val_lower or "completed" in val_lower or "fixed" in val_lower:
-            return "mitigated"
+            return "Mitigated"
         if "progress" in val_lower or "well-planned" in val_lower or "scheduled" in val_lower:
-            return "in_progress"
+            return "In Progress"
         if "accepted" in val_lower or "acknowledged" in val_lower:
-            return "accepted"
-    return "in_progress"
+            return "Accepted"
+    return "In Progress"
 
-def parse_target_date(row_cells):
-    for cell in row_cells:
-        if cell is None: continue
-        if re.search(r'\\b\\d{4}\\b', str(cell)) or re.search(r'\\d{2}[-/]\\d{2}[-/]\\d{4}', str(cell)):
-            return str(cell).strip()
-    return "N/A"
+groups_va = {}
+groups_pt = {}
+system_code_reviews = []
 
 wb = load_workbook(JS_PLAN_FILE, data_only=True)
-groups_v = {}
 
 for sheet_name in wb.sheetnames:
     sheet = wb[sheet_name]
@@ -921,15 +900,15 @@ for sheet_name in wb.sheetnames:
         if not obs_num or obs_num.lower() in ["item", "no.", "observation", "ref"]: continue
         
         raw_ip = str(row[3]).strip() if row[3] is not None else ""
-        raw_port = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
+        raw_port = str(row[5]).strip() if (len(row) > 5 and row[5] is not None) else ""
         
-        if obs_num.startswith("A"):
-            resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_display_name]
-        elif obs_num.startswith("V"):
-            resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+        if not obs_num.startswith(("V", "A")): continue
+        
+        if obs_num.startswith("V"):
+            port_label = f":{raw_port}" if raw_port else ""
+            resolved_hosts = [f"{ip.strip()}{port_label}" for ip in raw_ip.split('\\n') if ip.strip()] or [sys_display_name]
         else:
-            context_prefix = f"[Obs #{obs_num}] " if obs_num else "[No Number] "
-            resolved_hosts = [context_prefix + (ip.strip() if ip.strip() else testee_abbr) for ip in raw_ip.split('\\n')]
+            resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_display_name]
             
         vuln_name = str(row[8]).strip() if len(row) > 8 and row[8] is not None else "General System Finding"
         threat_desc = str(row[9]).strip() if len(row) > 9 and row[9] is not None else ""
@@ -938,25 +917,29 @@ for sheet_name in wb.sheetnames:
         
         sev_title = "AOI" if "aoi" in severity.lower() else severity.strip().title()
         combined_risk_rating = "AOI" if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
-        
         status = parse_verification_status(row[11:])
-        t_date = parse_target_date(row[11:])
-        ops_metrics[status] += 1
         
+        target_dict = groups_va if obs_num.startswith("V") else groups_pt
         hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
-        if hash_key not in groups_v:
-            groups_v[hash_key] = {
+        
+        if hash_key not in target_dict:
+            target_dict[hash_key] = {
                 "locations": resolved_hosts, "name": vuln_name, "threat": threat_desc, 
-                "rating": combined_risk_rating, "fix": remediation, "status": status.title().replace("_", " "), "date": t_date
+                "rating": combined_risk_rating, "fix": remediation, "status": status
             }
         else:
             for host in resolved_hosts:
-                if host not in groups_v[hash_key]["locations"]: groups_v[hash_key]["locations"].append(host)
+                if host not in target_dict[hash_key]["locations"]: target_dict[hash_key]["locations"].append(host)
 
-for item in groups_v.values():
-    system_vulnerabilities.append([
-        sys_display_name, "\\n".join(item["locations"]), item["name"], item["threat"], item["rating"], item["fix"], item["status"], item["date"]
-    ])
+# Produce 7-element lists matching Verification Table Structure
+system_va_findings = [
+    [sys_display_name, "\\n".join(v["locations"]), v["name"], v["threat"], v["rating"], v["fix"], v["status"]]
+    for v in groups_va.values()
+]
+system_pentest_findings = [
+    [sys_display_name, "\\n".join(v["locations"]), v["name"], v["threat"], v["rating"], v["fix"], v["status"]]
+    for v in groups_pt.values()
+]
 
 wb_c = load_workbook(JS_CODE_FILE, data_only=True)
 for sheet_name in wb_c.sheetnames:
@@ -977,80 +960,125 @@ for sheet_name in wb_c.sheetnames:
         
         sev_title = "AOI" if "aoi" in severity.lower() else severity.strip().title()
         combined_risk_rating = "AOI" if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
-        
         status = parse_verification_status(row[11:])
-        t_date = parse_target_date(row[11:])
-        sam_metrics[status] += 1
         
         hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
         if hash_key not in groups_c:
             groups_c[hash_key] = {
                 "paths": [raw_path], "name": vuln_name, "threat": threat_desc, 
-                "rating": combined_risk_rating, "fix": remediation, "status": status.title().replace("_", " "), "date": t_date
+                "rating": combined_risk_rating, "fix": remediation, "status": status
             }
         else:
             if raw_path not in groups_c[hash_key]["paths"]: groups_c[hash_key]["paths"].append(raw_path)
 
     for item in groups_c.values():
         system_code_reviews.append([
-            sys_display_name, "\\n".join(item["paths"]), item["name"], item["threat"], item["rating"], item["fix"], item["status"], item["date"]
+            sys_display_name, "\\n".join(item["paths"]), item["name"], item["threat"], item["rating"], item["fix"], item["status"]
         ])
 
 replacements = [
-    ("*company name* Limited", company_name), ("*company name*", company_name),
-    ("*testee name*", testee_name), ("testee name", testee_name),
-    ("*TESTEE ABBREVIATION*", testee_abbr), ("TESTEE ABBREVIATION", testee_abbr),
-    ("testee abbreviation", testee_abbr), ("*COMPANY ABBREVIATION*", company_abbr),
-    ("*system name*", sys_display_name), ("system name", sys_display_name),
-    ("*SYSTEM ABBREVIATION*", system_abbr), ("SYSTEM ABBREVIATION", system_abbr)
+    (r"\\*information system name \\(information system abbreviation\\)\\*", f"{sys_display_name} ({system_abbr})"),
+    (r"\\*testee name \\(testee abbreviation\\)\\*", f"{testee_name} ({testee_abbr})"),
+    (r"\\*company name \\(company abbreviation\\)\\*", f"{company_name} ({company_abbr})"),
+    (r"\\*information system name\\*", sys_display_name),
+    (r"\\*information system abbreviation\\*", system_abbr),
+    (r"\\*INFORMATION SYSTEM ABBREVIATION\\*", system_abbr.upper()),
+    (r"\\(INFORMATION SYSTEM ABBREVIATION\\)", f"({system_abbr.upper()})"),
+    (r"\\*testee name\\*", testee_name),
+    (r"\\*testee abbreviation\\*", testee_abbr),
+    (r"\\*TESTEE ABBREVIATION\\*", testee_abbr.upper()),
+    (r"\\*company name\\*", company_name),
+    (r"\\*company abbreviation\\*", company_abbr),
+    (r"\\*COMPANY ABBREVIATION\\*", company_abbr.upper())
 ]
 
 doc = Document("verification_template.docx")
 
-def synchronize_and_replace_dates(p, lookup_tuples):
+def apply_replacements(text):
+    for pattern, value in replacements:
+        text = re.sub(pattern, value if value else "", text, flags=re.IGNORECASE)
+    return text
+
+def synchronize_and_replace_dates(p):
     if p.style.name.startswith("Heading"): return
     full_text = "".join(run.text for run in p.runs)
     if not full_text.strip(): return
     modified = False
-    if re.search(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', full_text):
-        full_text = re.sub(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', current_date_numeric, full_text)
+    
+    # 1. Aggressive Numeric Dates
+    if re.search(r'\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}\\b', full_text):
+        full_text = re.sub(r'\\b\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}\\b', current_date_numeric, full_text)
         modified = True
-    if re.search(r'\\b[A-Za-z]{3}\\s+\\d{4}\\b', full_text, re.IGNORECASE):
-        full_text = re.sub(r'\\b[A-Za-z]{3}\\s+\\d{4}\\b', current_date_text, full_text, flags=re.IGNORECASE)
+        
+    # 2. Aggressive Text Dates
+    month_pattern = r'\\b(?:January|February|March|April|May|June|July|August|September|October|November|December|[A-Za-z]{3})\\s+\\d{4}\\b'
+    if re.search(month_pattern, full_text, re.IGNORECASE):
+        full_text = re.sub(month_pattern, current_date_text, full_text, flags=re.IGNORECASE)
         modified = True
-    for k, val in lookup_tuples:
-        if k.lower() in full_text.lower():
-            full_text = re.sub(re.escape(k), val if val else "", full_text, flags=re.IGNORECASE)
-            modified = True
+    
+    # 3. Standard Placeholders
+    new_text = apply_replacements(full_text)
+    if new_text != full_text:
+        full_text = new_text
+        modified = True
+
     if modified:
         if p.runs:
             p.runs[0].text = full_text
             for r in p.runs[1:]: r.text = ""
         else: p.text = full_text
 
-for p in list(doc.paragraphs): synchronize_and_replace_dates(p, replacements)
+for p in list(doc.paragraphs): synchronize_and_replace_dates(p)
+
+def get_preceding_paragraph_text(table):
+    prev = table._tbl.getprevious()
+    while prev is not None:
+        tag = prev.tag.split('}')[-1]
+        if tag == 'p':
+            return ''.join(r.text for r in prev.iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t'))
+        if tag == 'tbl':
+            break
+        prev = prev.getprevious()
+    return ''
+
+findings_tables_va = []
+findings_tables_pt = []
+findings_tables_cr = []
 
 for table in doc.tables:
     if len(table.rows) == 0 or len(table.rows[0].cells) == 0: continue
     first_row_text = "".join(cell.text.lower() for cell in table.rows[0].cells)
 
-    if "vulnerability assessment and web penetration test" in first_row_text and "target completion date" in first_row_text:
-        for r_idx in range(len(table.rows) - 1, 0, -1): table._tbl.remove(table.rows[r_idx]._tr)
-        for f in system_vulnerabilities:
-            new_row = table.add_row()
-            for c_idx, val in enumerate(f): apply_text_styling_and_borders(new_row.cells[c_idx], val)
-        continue
+    if "affected it systems" in first_row_text:
+        preceding = get_preceding_paragraph_text(table).lower()
+        if "11.1.1" in preceding or "vulnerability assessment" in preceding:
+            findings_tables_va.append(table)
+        elif "11.1.2" in preceding or "penetration test" in preceding:
+            findings_tables_pt.append(table)
+        elif "11.1.3" in preceding or "code review" in preceding:
+            findings_tables_cr.append(table)
+        else:
+            all_ft = findings_tables_va + findings_tables_pt + findings_tables_cr
+            if len(all_ft) == 0: findings_tables_va.append(table)
+            elif len(all_ft) == 1: findings_tables_pt.append(table)
+            else: findings_tables_cr.append(table)
+    else:
+        for row in table.rows:
+            for cell in row.cells:
+                for cell_p in cell.paragraphs: synchronize_and_replace_dates(cell_p)
 
-    if "10.2" in first_row_text and "target completion date" in first_row_text:
-        for r_idx in range(len(table.rows) - 1, 0, -1): table._tbl.remove(table.rows[r_idx]._tr)
-        for f in system_code_reviews:
-            new_row = table.add_row()
-            for c_idx, val in enumerate(f): apply_text_styling_and_borders(new_row.cells[c_idx], val)
-        continue
+def fill_findings_table(target_table, rows_data):
+    for r_idx in range(len(target_table.rows) - 1, 0, -1):
+        target_table._tbl.remove(target_table.rows[r_idx]._tr)
+    for f in rows_data:
+        new_row = target_table.add_row()
+        for c_idx, val in enumerate(f):
+            if c_idx < len(new_row.cells):
+                apply_text_styling_and_borders(new_row.cells[c_idx], str(val))
 
-    for row in table.rows:
-        for cell in row.cells:
-            for cell_p in cell.paragraphs: synchronize_and_replace_dates(cell_p, replacements)
+for t in findings_tables_va: fill_findings_table(t, system_va_findings)
+for t in findings_tables_pt: fill_findings_table(t, system_pentest_findings)
+for t in findings_tables_cr: fill_findings_table(t, system_code_reviews)
 
 for p in doc.paragraphs:
     for run in p.runs:
