@@ -1728,7 +1728,7 @@ def parse_excel_followup_source(xlsx_path, prefix_filter, global_metrics, domain
             if sev_key in global_metrics:
                 global_metrics[sev_key] += 1
             
-            dom_mapped_key = forced_domain_id if forced_domain_id else normalize_domain_key(raw_domain)
+            dom_mapped_key = forced_domain_id if (forced_domain_id or prefix_filter == "C") else normalize_domain_key(raw_domain)
             if dom_mapped_key in domain_matrix and sev_key in domain_matrix[dom_mapped_key]:
                 domain_matrix[dom_mapped_key][sev_key] += 1
                 
@@ -1991,13 +1991,15 @@ for table in doc.tables:
         matched_domain_id = next((internal_id for prefix, internal_id in domain_mapping_keys if prefix in row_header_clean), None)
         
         if matched_domain_id and len(row.cells) >= 5:
+            # Operations Security -> Gets Vuln Scan (V) & Pen Test (A) totals
             if matched_domain_id == "operations":
                 counts_map = domain_matrix.get("operations", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
+            # System Acquisition, Development and Maintenance -> Gets Code Review (C) totals
             elif matched_domain_id == "development":
                 counts_map = domain_matrix.get("development", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
             else:
                 counts_map = domain_matrix[matched_domain_id]
-            
+        
             apply_text_styling_and_borders(row.cells[1], str(counts_map["high"]), center=True)
             apply_text_styling_and_borders(row.cells[2], str(counts_map["medium"]), center=True)
             apply_text_styling_and_borders(row.cells[3], str(counts_map["low"]), center=True)
