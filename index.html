@@ -441,7 +441,8 @@ year_str = now.strftime("%Y")
 wab_doc = Document(JS_WAB_NAME)
 
 def extract_wab_metadata_and_scope(wab_document):
-    full_wab_text = "\n".join([p.text.strip() for p in wab_document.paragraphs if p.text.strip()])
+    # Use \\n so JavaScript outputs a literal \n to Python
+    full_wab_text = "\\n".join([p.text.strip() for p in wab_document.paragraphs if p.text.strip()])
     clean_text = re.sub(r'\\s+', ' ', full_wab_text)
     
     doc_type_pattern = re.compile(r'security\\s+risk\\s+assessment\\s*(?:&|and)\\s*audit', re.IGNORECASE)
@@ -1042,6 +1043,7 @@ current_date_numeric = f"{day_str}-{now.strftime('%m')}-{year_str}"
 wab_doc = Document(JS_WAB_NAME)
 
 def extract_wab_metadata_and_scope(wab_document):
+    # Use \\n so JavaScript outputs a literal \n to Python
     full_wab_text = "\\n".join([p.text.strip() for p in wab_document.paragraphs if p.text.strip()])
     clean_text = re.sub(r'\\s+', ' ', full_wab_text)
     
@@ -1495,6 +1497,7 @@ current_date_numeric = JS_COMPUTED_DATE_NUMERIC
 wab_doc = Document(JS_WAB_NAME)
 
 def extract_wab_metadata_and_scope(wab_document):
+    # Use \\n so JavaScript outputs a literal \n to Python
     full_wab_text = "\\n".join([p.text.strip() for p in wab_document.paragraphs if p.text.strip()])
     clean_text = re.sub(r'\\s+', ' ', full_wab_text)
     
