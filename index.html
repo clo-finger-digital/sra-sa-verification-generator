@@ -408,78 +408,65 @@ from docx import Document
 
 doc = Document("${tempFilename}")
 full_text = "\\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
-clean_text = re.sub(r'\\s+', ' ', full_text)
 
-# Robust Department (Testee) Extraction
+# Normalize smart quotes and unicode hyphens across text
+normalized_text = full_text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'").replace("–", "-")
+
 dept_name = ""
 dept_abbr = ""
 
-for p in doc.paragraphs:
-    t = p.text.strip()
-    # Match patterns like: for Civil Service Bureau (“CSB”)
-    m = re.search(r'for\\s+([A-Z][A-Za-z\\s&,\\-\\.]{2,60})\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', t, re.IGNORECASE)
-    if m:
-        c_name = m.group(1).strip()
-        c_abbr = m.group(2).strip().upper()
-        if c_abbr not in ['SRAA', 'SOA', 'QPS5', 'HKSARG', 'DPO', 'PIA', 'IT', 'HKSAR']:
-            dept_name = c_name
-            dept_abbr = c_abbr
-            break
+# 1. FIXED TESTEE EXTRACTION
+# Pattern A: Matches "for [Department Name] ("ABBR")" or "for the [Department Name] ("ABBR")"
+dept_matches = re.findall(r'for(?:\\s+the)?\\s+([A-Z][A-Za-z\\s&,\\-\\.]{2,60})\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', normalized_text, re.IGNORECASE)
 
+blacklist_abbrs = {'SRAA', 'SOA', 'QPS5', 'HKSARG', 'DPO', 'PIA', 'IT', 'HKSAR', '60', '30', '90', '20'}
+
+for name_cand, abbr_cand in dept_matches:
+    c_name = name_cand.strip()
+    c_abbr = abbr_cand.strip().upper()
+    if c_abbr not in blacklist_abbrs and not c_name.lower().startswith("the work assignment"):
+        dept_name = c_name
+        dept_abbr = c_abbr
+        break
+
+# Fallback Testee Pattern: Standard Bureau/Department Regex
 if not dept_name:
-    m2 = re.search(r'\\b(Civil Service Bureau|Education Bureau|Digital Policy Office|Civil Engineering and Development Department|Department of Health|Hong Kong Police Force|Leisure and Cultural Services Department|[A-Z][a-zA-Z\\s]+(?:Bureau|Department|Office|Agency))\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', clean_text)
-    if m2:
-        dept_name = m2.group(1).strip()
-        dept_abbr = m2.group(2).strip().upper()
+    m_dept = re.search(r'\\b(Education Bureau|Civil Service Bureau|Digital Policy Office|Civil Engineering and Development Department|Department of Health|Hong Kong Police Force|Leisure and Cultural Services Department|[A-Z][a-zA-Z\\s]+(?:Bureau|Department|Office|Agency))\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', normalized_text)
+    if m_dept:
+        dept_name = m_dept.group(1).strip()
+        dept_abbr = m_dept.group(2).strip().upper()
 
-# System Extraction Engine - Extracting major systems list from Scope / Annex
-systems_found = []
-raw_sys_lines = []
-
-# Scan paragraphs for system names
-in_sys_section = False
-for p in doc.paragraphs:
-    t = p.text.strip()
-    if re.search(r'major information systems and (?:IT )?infrastructure include', t, re.IGNORECASE) or 'ANNEX 1' in t:
-        in_sys_section = True
-        continue
-    if in_sys_section:
-        if re.search(r'\\b2\\.\\b|ACCEPTANCE CRITERIA|REFERENCE DOCUMENTATION|PAYMENT SCHEDULE', t):
-            in_sys_section = False
-        if len(t) > 3 and not t.startswith("Section") and not t.startswith("ANNEX"):
-            raw_sys_lines.append(t)
-
-# Refine major system extraction with Regex Acronyms
+# 2. FIXED SYSTEM EXTRACTION (Handles "e-COPES", smart quotes, hyphenated acronyms)
 sys_candidates = []
-pattern_sys = re.compile(r'^(.*?)(?:\\s*\\(([A-Z0-9\\-\\s/]{2,15})\\))?$')
 
-for line in raw_sys_lines:
-    # Match lines like "Administrative Officer Personnel Information System (AOPIS)"
-    m = pattern_sys.search(line)
-    if m:
-        full_s = m.group(1).strip()
-        abbr_s = m.group(2).strip() if m.group(2) else ""
-        if len(full_s) > 3 and not full_s.lower().startswith("the contractor") and not full_s.lower().startswith("to evaluate"):
-            if not abbr_s:
-                # Try to extract embedded uppercase acronyms if missing
-                a_match = re.search(r'\\b([A-Z0-9\\-]{2,10})\\b', full_s)
-                if a_match and a_match.group(1) not in ['CSB', 'HKSARG', 'DPO', 'IT', 'VPN', 'WI', 'FI', 'PDF', 'CPU', 'PC']:
-                    abbr_s = a_match.group(1)
-            sys_candidates.append({"name": full_s, "abbr": abbr_s})
+# Pattern 1: Target primary quoted systems e.g. "e-COPES" ("Coaching Programme...")
+primary_sys_matches = re.findall(r'["“](([a-zA-Z0-9\\-]+))[”"]\\s*\\([“"]?([^"”\\)]+)[”"]?\\)', full_text)
+for sys_abbr_cand, sys_name_cand in primary_sys_matches:
+    s_abbr = sys_abbr_cand.strip()
+    s_name = sys_name_cand.strip()
+    if len(s_abbr) >= 2 and s_abbr.upper() not in blacklist_abbrs:
+        sys_candidates.append({"name": f"{s_name} ({s_abbr})", "abbr": s_abbr})
 
-# Deduplicate systems list
+# Pattern 2: Target standard "System Name (ABBR)" occurrences throughout Scope/Annex 1
+standard_sys_matches = re.findall(r'([A-Z][A-Za-z0-9\\s&,\\-\\.]{3,70})\\s*\\(([A-Z0-9\\-]{2,12})\\)', normalized_text)
+for sys_name_cand, sys_abbr_cand in standard_sys_matches:
+    s_name = sys_name_cand.strip()
+    s_abbr = sys_abbr_cand.strip().upper()
+    if s_abbr not in blacklist_abbrs and not s_name.lower().startswith("section") and not s_name.lower().startswith("annex"):
+        sys_candidates.append({"name": s_name, "abbr": s_abbr})
+
+# Deduplicate candidates list while preserving original structure
 seen = set()
 unique_systems = []
 for s in sys_candidates:
-    key = s["name"].lower()
-    if key not in seen and len(key) < 100:
+    key = s["abbr"].lower()
+    if key not in seen and len(key) >= 2:
         seen.add(key)
         unique_systems.append(s)
 
 import js
 js.updateUIFields("${prefix}", dept_name, dept_abbr, json.dumps(unique_systems))
 `;
-
                 try {
                     await pyodideModule.runPythonAsync(extractScript);
                     logFunction("UI fields and system drop-down successfully updated from WAB!");
