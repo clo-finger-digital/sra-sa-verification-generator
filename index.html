@@ -408,7 +408,7 @@ from docx import Document
 
 doc = Document("${tempFilename}")
 
-# 1. Build Title Block (First 25 paragraphs or up to Table of Contents)
+# 1. Build Clean Title Block
 title_paragraphs = []
 for p in doc.paragraphs[:25]:
     txt = p.text.strip()
@@ -419,8 +419,9 @@ for p in doc.paragraphs[:25]:
     title_paragraphs.append(txt)
 
 title_block = " ".join(title_paragraphs)
+# Normalize spacing and smart characters
+clean_title = re.sub(r'\\s+', ' ', title_block).replace("“", '"').replace("”", '"').replace("–", "-")
 
-# Full body text for abbreviation & system searching
 full_text = "\\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
 normalized_full_text = full_text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'").replace("–", "-")
 
@@ -428,47 +429,46 @@ dept_name = ""
 dept_abbr = ""
 
 # 2. Extract Testee Full Name from Title
-# Rule A: If "system" or "systems" in title_block -> extract right after "of the" / "of"
-if re.search(r'\\bsystems?\\b', title_block, re.IGNORECASE):
-    m_of = re.search(r'\\bof\\s+(?:the\\s+)?([A-Z][A-Za-z\\s&,\\-\\.]{2,60}?)(?=\\s*(?:Version|Category|Date|30|\\d{1,2}\\s+[A-Za-z]+|$))', title_block, re.IGNORECASE)
+# Rule A: If "system", "systems", or "websites" exists in title -> Search explicitly for "of the <Department>"
+if re.search(r'\\b(?:systems?|websites?)\\b', clean_title, re.IGNORECASE):
+    m_of = re.search(r'\\bof\\s+the\\s+([A-Z][A-Za-z\\s&,\\-\\.]{2,60}?)(?=\\s*(?:Version|Category|Date|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|\\d{4}|$))', clean_title, re.IGNORECASE)
     if m_of:
         dept_name = m_of.group(1).strip()
 
-# Rule B: Extract right after "for" or "for the"
+# Rule B: Search for "for the <Department>" or "for <Department>" (excluding generic phrases)
 if not dept_name:
-    m_for = re.search(r'\\bfor\\s+(?:the\\s+)?([A-Z][A-Za-z\\s&,\\-\\.]{2,60}?)(?=\\s*(?:Version|Category|Date|30|\\d{1,2}\\s+[A-Za-z]+|$))', title_block, re.IGNORECASE)
+    m_for = re.search(r'\\bfor\\s+(?:the\\s+)?([A-Z][A-Za-z\\s&,\\-\\.]{2,60}?)(?=\\s*(?:Version|Category|Date|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|\\d{4}|$))', clean_title, re.IGNORECASE)
     if m_for:
-        dept_name = m_for.group(1).strip()
+        cand = m_for.group(1).strip()
+        if not cand.lower().startswith("work assignment") and not cand.lower().startswith("the work assignment"):
+            dept_name = cand
 
-# Clean trailing metadata keywords if present
+# Clean remaining trailing keywords/dates
 if dept_name:
     dept_name = re.sub(r'\\s+(Version|Category|Date|SOA-QPS\\d+|\\d{4}).*', '', dept_name, flags=re.IGNORECASE).strip()
 
-# 3. Search WAB Body Text for the Abbreviation associated with dept_name
+# 3. Search WAB Body Text for Abbreviation associated with dept_name
 if dept_name:
     escaped_name = re.escape(dept_name)
-    # Match pattern: <Department Name> ("ABBR") or <Department Name> ("ABBR")
     m_abbr = re.search(fr'{escaped_name}\\s*(?:\\([^\\)]*\\))?\\s*[\\(“"]([A-Z0-9]{{2,10}})[\\)”"]', normalized_full_text, re.IGNORECASE)
     if m_abbr:
         dept_abbr = m_abbr.group(1).strip().upper()
     else:
-        # Near match within 80 characters
-        m_abbr_near = re.search(fr'{escaped_name}.{{0,80}}?[\\(“"]([A-Z0-9]{{2,10}})[\\)”"]', normalized_full_text, re.IGNORECASE)
+        m_abbr_near = re.search(fr'{escaped_name}.{{0,100}}?[\\(“"]([A-Z0-9]{{2,10}})[\\)”"]', normalized_full_text, re.IGNORECASE)
         if m_abbr_near:
             dept_abbr = m_abbr_near.group(1).strip().upper()
 
-# Fallback: Default standard bureau matching if title pattern was not triggered
+# Fallback testee check if title parsing yields nothing
 if not dept_name:
-    m_fallback = re.search(r'\\b(Civil Service Bureau|Education Bureau|Digital Policy Office|Civil Engineering and Development Department|Department of Health|Hong Kong Police Force|Leisure and Cultural Services Department|[A-Z][a-zA-Z\\s]+(?:Bureau|Department|Office|Agency))\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', normalized_full_text)
+    m_fallback = re.search(r'\\b(Education Bureau|Civil Service Bureau|Digital Policy Office|Civil Engineering and Development Department|Department of Health|Hong Kong Police Force|Leisure and Cultural Services Department|[A-Z][a-zA-Z\\s]+(?:Bureau|Department|Office|Agency))\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', normalized_full_text)
     if m_fallback:
         dept_name = m_fallback.group(1).strip()
         dept_abbr = m_fallback.group(2).strip().upper()
 
-# 4. Extract Major Information Systems (e.g. e-COPES, AOPIS, etc.)
+# 4. Systems Extraction
 blacklist_abbrs = {'SRAA', 'SOA', 'QPS5', 'HKSARG', 'DPO', 'PIA', 'IT', 'HKSAR', '60', '30', '90', '20'}
 sys_candidates = []
 
-# Pattern A: Matches quoted systems e.g. "e-COPES" ("Coaching Programme...") or "e-COPES"
 primary_sys_matches = re.findall(r'["“](([a-zA-Z0-9\\-]+))[”"]\\s*\\([“"]?([^"”\\)]+)[”"]?\\)', full_text)
 for sys_abbr_cand, sys_name_cand in primary_sys_matches:
     s_abbr = sys_abbr_cand.strip()
@@ -476,7 +476,6 @@ for sys_abbr_cand, sys_name_cand in primary_sys_matches:
     if len(s_abbr) >= 2 and s_abbr.upper() not in blacklist_abbrs:
         sys_candidates.append({"name": f"{s_name} ({s_abbr})", "abbr": s_abbr})
 
-# Pattern B: Target standard "System Name (ABBR)" occurrences in Scope/Annex 1
 standard_sys_matches = re.findall(r'([A-Z][A-Za-z0-9\\s&,\\-\\.]{3,70})\\s*\\(([A-Z0-9\\-]{2,12})\\)', normalized_full_text)
 for sys_name_cand, sys_abbr_cand in standard_sys_matches:
     s_name = sys_name_cand.strip()
@@ -484,7 +483,6 @@ for sys_name_cand, sys_abbr_cand in standard_sys_matches:
     if s_abbr not in blacklist_abbrs and not s_name.lower().startswith("section") and not s_name.lower().startswith("annex"):
         sys_candidates.append({"name": s_name, "abbr": s_abbr})
 
-# Deduplicate candidates list
 seen = set()
 unique_systems = []
 for s in sys_candidates:
