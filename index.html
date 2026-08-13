@@ -790,9 +790,11 @@ def parse_and_cluster_sources(xlsx_path, prefix_filter, global_metrics):
 
 global_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
 
-v_vulnerabilities = parse_and_cluster_sources(JS_PLAN_NAME, "V", global_metrics)
-a_vulnerabilities = parse_and_cluster_sources(JS_PLAN_NAME, "A", global_metrics)
-c_vulnerabilities = parse_and_cluster_sources(JS_CODE_NAME, "C", global_metrics)
+v_vulnerabilities = parse_excel_followup_source(JS_PLAN_NAME, "V", global_metrics, domain_matrix, forced_domain_id="operations")
+a_vulnerabilities = parse_excel_followup_source(JS_PLAN_NAME, "A", global_metrics, domain_matrix, forced_domain_id="operations")
+
+# Direct C code review items directly into System Acquisition, Development and Maintenance
+c_vulnerabilities = parse_excel_followup_source(JS_CODE_NAME, "C", global_metrics, domain_matrix, forced_domain_id="development")
 
 total_findings_count = sum(global_metrics.values())
 
