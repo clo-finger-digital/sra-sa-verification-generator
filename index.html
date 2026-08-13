@@ -407,39 +407,68 @@ import json
 from docx import Document
 
 doc = Document("${tempFilename}")
-full_text = "\\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
 
-# Normalize smart quotes and unicode hyphens across text
-normalized_text = full_text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'").replace("–", "-")
+# 1. Build Title Block (First 25 paragraphs or up to Table of Contents)
+title_paragraphs = []
+for p in doc.paragraphs[:25]:
+    txt = p.text.strip()
+    if not txt:
+        continue
+    if "TABLE OF CONTENTS" in txt.upper() or "SCOPE OF THE SERVICES" in txt.upper():
+        break
+    title_paragraphs.append(txt)
+
+title_block = " ".join(title_paragraphs)
+
+# Full body text for abbreviation & system searching
+full_text = "\\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
+normalized_full_text = full_text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'").replace("–", "-")
 
 dept_name = ""
 dept_abbr = ""
 
-# 1. FIXED TESTEE EXTRACTION
-# Pattern A: Matches "for [Department Name] ("ABBR")" or "for the [Department Name] ("ABBR")"
-dept_matches = re.findall(r'for(?:\\s+the)?\\s+([A-Z][A-Za-z\\s&,\\-\\.]{2,60})\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', normalized_text, re.IGNORECASE)
+# 2. Extract Testee Full Name from Title
+# Rule A: If "system" or "systems" in title_block -> extract right after "of the" / "of"
+if re.search(r'\\bsystems?\\b', title_block, re.IGNORECASE):
+    m_of = re.search(r'\\bof\\s+(?:the\\s+)?([A-Z][A-Za-z\\s&,\\-\\.]{2,60}?)(?=\\s*(?:Version|Category|Date|30|\\d{1,2}\\s+[A-Za-z]+|$))', title_block, re.IGNORECASE)
+    if m_of:
+        dept_name = m_of.group(1).strip()
 
-blacklist_abbrs = {'SRAA', 'SOA', 'QPS5', 'HKSARG', 'DPO', 'PIA', 'IT', 'HKSAR', '60', '30', '90', '20'}
-
-for name_cand, abbr_cand in dept_matches:
-    c_name = name_cand.strip()
-    c_abbr = abbr_cand.strip().upper()
-    if c_abbr not in blacklist_abbrs and not c_name.lower().startswith("the work assignment"):
-        dept_name = c_name
-        dept_abbr = c_abbr
-        break
-
-# Fallback Testee Pattern: Standard Bureau/Department Regex
+# Rule B: Extract right after "for" or "for the"
 if not dept_name:
-    m_dept = re.search(r'\\b(Education Bureau|Civil Service Bureau|Digital Policy Office|Civil Engineering and Development Department|Department of Health|Hong Kong Police Force|Leisure and Cultural Services Department|[A-Z][a-zA-Z\\s]+(?:Bureau|Department|Office|Agency))\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', normalized_text)
-    if m_dept:
-        dept_name = m_dept.group(1).strip()
-        dept_abbr = m_dept.group(2).strip().upper()
+    m_for = re.search(r'\\bfor\\s+(?:the\\s+)?([A-Z][A-Za-z\\s&,\\-\\.]{2,60}?)(?=\\s*(?:Version|Category|Date|30|\\d{1,2}\\s+[A-Za-z]+|$))', title_block, re.IGNORECASE)
+    if m_for:
+        dept_name = m_for.group(1).strip()
 
-# 2. FIXED SYSTEM EXTRACTION (Handles "e-COPES", smart quotes, hyphenated acronyms)
+# Clean trailing metadata keywords if present
+if dept_name:
+    dept_name = re.sub(r'\\s+(Version|Category|Date|SOA-QPS\\d+|\\d{4}).*', '', dept_name, flags=re.IGNORECASE).strip()
+
+# 3. Search WAB Body Text for the Abbreviation associated with dept_name
+if dept_name:
+    escaped_name = re.escape(dept_name)
+    # Match pattern: <Department Name> ("ABBR") or <Department Name> ("ABBR")
+    m_abbr = re.search(fr'{escaped_name}\\s*(?:\\([^\\)]*\\))?\\s*[\\(“"]([A-Z0-9]{{2,10}})[\\)”"]', normalized_full_text, re.IGNORECASE)
+    if m_abbr:
+        dept_abbr = m_abbr.group(1).strip().upper()
+    else:
+        # Near match within 80 characters
+        m_abbr_near = re.search(fr'{escaped_name}.{{0,80}}?[\\(“"]([A-Z0-9]{{2,10}})[\\)”"]', normalized_full_text, re.IGNORECASE)
+        if m_abbr_near:
+            dept_abbr = m_abbr_near.group(1).strip().upper()
+
+# Fallback: Default standard bureau matching if title pattern was not triggered
+if not dept_name:
+    m_fallback = re.search(r'\\b(Civil Service Bureau|Education Bureau|Digital Policy Office|Civil Engineering and Development Department|Department of Health|Hong Kong Police Force|Leisure and Cultural Services Department|[A-Z][a-zA-Z\\s]+(?:Bureau|Department|Office|Agency))\\s*[\\(“"]([A-Z0-9]{2,10})[\\)”"]', normalized_full_text)
+    if m_fallback:
+        dept_name = m_fallback.group(1).strip()
+        dept_abbr = m_fallback.group(2).strip().upper()
+
+# 4. Extract Major Information Systems (e.g. e-COPES, AOPIS, etc.)
+blacklist_abbrs = {'SRAA', 'SOA', 'QPS5', 'HKSARG', 'DPO', 'PIA', 'IT', 'HKSAR', '60', '30', '90', '20'}
 sys_candidates = []
 
-# Pattern 1: Target primary quoted systems e.g. "e-COPES" ("Coaching Programme...")
+# Pattern A: Matches quoted systems e.g. "e-COPES" ("Coaching Programme...") or "e-COPES"
 primary_sys_matches = re.findall(r'["“](([a-zA-Z0-9\\-]+))[”"]\\s*\\([“"]?([^"”\\)]+)[”"]?\\)', full_text)
 for sys_abbr_cand, sys_name_cand in primary_sys_matches:
     s_abbr = sys_abbr_cand.strip()
@@ -447,15 +476,15 @@ for sys_abbr_cand, sys_name_cand in primary_sys_matches:
     if len(s_abbr) >= 2 and s_abbr.upper() not in blacklist_abbrs:
         sys_candidates.append({"name": f"{s_name} ({s_abbr})", "abbr": s_abbr})
 
-# Pattern 2: Target standard "System Name (ABBR)" occurrences throughout Scope/Annex 1
-standard_sys_matches = re.findall(r'([A-Z][A-Za-z0-9\\s&,\\-\\.]{3,70})\\s*\\(([A-Z0-9\\-]{2,12})\\)', normalized_text)
+# Pattern B: Target standard "System Name (ABBR)" occurrences in Scope/Annex 1
+standard_sys_matches = re.findall(r'([A-Z][A-Za-z0-9\\s&,\\-\\.]{3,70})\\s*\\(([A-Z0-9\\-]{2,12})\\)', normalized_full_text)
 for sys_name_cand, sys_abbr_cand in standard_sys_matches:
     s_name = sys_name_cand.strip()
     s_abbr = sys_abbr_cand.strip().upper()
     if s_abbr not in blacklist_abbrs and not s_name.lower().startswith("section") and not s_name.lower().startswith("annex"):
         sys_candidates.append({"name": s_name, "abbr": s_abbr})
 
-# Deduplicate candidates list while preserving original structure
+# Deduplicate candidates list
 seen = set()
 unique_systems = []
 for s in sys_candidates:
