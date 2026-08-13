@@ -405,6 +405,8 @@
 import re
 import json
 from docx import Document
+# 1. Update docx imports
+from docx.shared import Pt, RGBColor
 
 doc = Document("${tempFilename}")
 
@@ -660,7 +662,7 @@ year_str = now.strftime("%Y")
 
 wab_doc = Document(JS_WAB_NAME)
 
-def apply_text_styling_and_borders(cell, text, center=False):
+def apply_text_styling_and_borders(cell, text, is_header=False, center=False, text_color=None):
     cell.text = ""
     p = cell.paragraphs[0]
     if center:
@@ -668,6 +670,10 @@ def apply_text_styling_and_borders(cell, text, center=False):
     run = p.add_run(text)
     run.font.name = 'Times New Roman'
     run.font.size = Pt(10)
+    if is_header:
+        run.bold = True
+    if text_color:
+        run.font.color.rgb = text_color
         
     tcPr = cell._tc.get_or_add_tcPr()
     tcBorders = OxmlElement('w:tcBorders')
@@ -1019,7 +1025,8 @@ for p_idx, p in enumerate(list(doc.paragraphs)):
         p.text = ""
     else:
         run_replace_mechanism(p, replacements)
-
+        
+RED = RGBColor(255, 0, 0)
 for table in doc.tables:
     if len(table.rows) == 0 or len(table.rows[0].cells) == 0: 
         continue
@@ -1565,6 +1572,8 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from openpyxl import load_workbook
 from docx.oxml import CT_Tbl, OxmlElement
 from docx.oxml.ns import qn
+# 1. Update docx imports
+from docx.shared import Pt, RGBColor
 
 company_name = JS_COMPANY_NAME
 company_abbr = JS_COMPANY_ABBREVIATION
@@ -1597,7 +1606,7 @@ def normalize_domain_key(text):
     if "compliance" in t: return "compliance"
     return "compliance"
 
-def apply_text_styling_and_borders(cell, text, is_header=False, center=False):
+def apply_text_styling_and_borders(cell, text, is_header=False, center=False, text_color=None):
     cell.text = ""
     p = cell.paragraphs[0]
     if center:
@@ -1607,6 +1616,8 @@ def apply_text_styling_and_borders(cell, text, is_header=False, center=False):
     run.font.size = Pt(10)
     if is_header:
         run.bold = True
+    if text_color:
+        run.font.color.rgb = text_color
         
     tcPr = cell._tc.get_or_add_tcPr()
     tcBorders = OxmlElement('w:tcBorders')
@@ -1977,7 +1988,8 @@ for table in doc.tables:
         except Exception: pass
         continue
 
-    if "affected it systems" in first_row_text: continue
+   if "affected it systems" in first_row_text: 
+        continue
 
     domain_mapping_keys = [
         ("managementrespons", "management"), ("itsecuritypolic", "policy"), ("humanresource", "human"),
@@ -1991,19 +2003,27 @@ for table in doc.tables:
         matched_domain_id = next((internal_id for prefix, internal_id in domain_mapping_keys if prefix in row_header_clean), None)
         
         if matched_domain_id and len(row.cells) >= 5:
-            # Operations Security -> Gets Vuln Scan (V) & Pen Test (A) totals
+            # Map Vuln Scan + Pen Test to Operations Security
             if matched_domain_id == "operations":
                 counts_map = domain_matrix.get("operations", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
-            # System Acquisition, Development and Maintenance -> Gets Code Review (C) totals
+            # Map Source Code Review to System Acquisition, Development and Maintenance
             elif matched_domain_id == "development":
                 counts_map = domain_matrix.get("development", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
             else:
                 counts_map = domain_matrix[matched_domain_id]
-        
-            apply_text_styling_and_borders(row.cells[1], str(counts_map["high"]), center=True)
-            apply_text_styling_and_borders(row.cells[2], str(counts_map["medium"]), center=True)
-            apply_text_styling_and_borders(row.cells[3], str(counts_map["low"]), center=True)
-            apply_text_styling_and_borders(row.cells[4], str(counts_map["aoi"]), center=True)
+            
+            # Apply text in RED only for this summary table
+            apply_text_styling_and_borders(row.cells[1], str(counts_map["high"]), center=True, text_color=RED)
+            apply_text_styling_and_borders(row.cells[2], str(counts_map["medium"]), center=True, text_color=RED)
+            apply_text_styling_and_borders(row.cells[3], str(counts_map["low"]), center=True, text_color=RED)
+            apply_text_styling_and_borders(row.cells[4], str(counts_map["aoi"]), center=True, text_color=RED)
+            continue
+                
+        if "grandtotal" in row_header_clean and len(row.cells) >= 5:
+            apply_text_styling_and_borders(row.cells[1], str(global_metrics["high"]), center=True, text_color=RED)
+            apply_text_styling_and_borders(row.cells[2], str(global_metrics["medium"]), center=True, text_color=RED)
+            apply_text_styling_and_borders(row.cells[3], str(global_metrics["low"]), center=True, text_color=RED)
+            apply_text_styling_and_borders(row.cells[4], str(global_metrics["aoi"]), center=True, text_color=RED)
             continue
                 
         if "grandtotal" in row_header_clean and len(row.cells) >= 5:
