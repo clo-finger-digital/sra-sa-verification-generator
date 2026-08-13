@@ -732,17 +732,35 @@ def parse_and_cluster_sources(xlsx_path, prefix_filter, global_metrics):
             if not is_valid_finding:
                 continue
 
+            def format_asset_address(ip_raw, port_raw, default_proto="tcp"):
+                if not ip_raw:
+                    return ""
+                ip_str = str(ip_raw).strip().lower()
+                port_str = str(port_raw).strip().lower() if port_raw else ""
+                
+                # Extract clean IP
+                ip_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3})', ip_str)
+                clean_ip = ip_match.group(1) if ip_match else ip_str
+                
+                # Extract protocol
+                proto = default_proto
+                if "udp" in ip_str or "udp" in port_str: proto = "udp"
+                elif "tcp" in ip_str or "tcp" in port_str: proto = "tcp"
+                
+                # Extract numerical port
+                port_match = re.search(r'(\d{1,5})', port_str)
+                clean_port = port_match.group(1) if port_match else re.sub(r'[^\d]', '', port_str)
+                
+                if clean_ip and clean_port:
+                    return f"{clean_ip}{proto}{clean_port}"
+                return clean_ip
+            
             if prefix_filter == "C":
                 asset_location = "System Codebase"
             else:
-                ip_lines = [line.strip() for line in raw_ip.split('\\n') if line.strip()]
-                resolved = []
-                for ip in ip_lines:
-                    if raw_port and ":" not in ip and str(raw_port) not in ip:
-                        resolved.append(f"{ip}:{raw_port}")
-                    else:
-                        resolved.append(ip if ip else sys_abbr)
-                asset_location = "\\n".join(resolved) if resolved else sys_abbr
+                ip_lines = [line.strip() for line in raw_ip.split('\n') if line.strip()]
+                resolved = [format_asset_address(ip, raw_port) for ip in ip_lines if ip]
+                asset_location = ", ".join(resolved) if resolved else sys_abbr
 
             sev_title = severity.strip().title()
             if "aoi" in severity.lower(): sev_title = "AOI"
@@ -1958,14 +1976,22 @@ for table in doc.tables:
         row_header_clean = row.cells[0].text.lower().replace(" ", "").replace(",", "").replace("-", "")
         matched_domain_id = next((internal_id for prefix, internal_id in domain_mapping_keys if prefix in row_header_clean), None)
         
-        if matched_domain_id and len(row.cells) >= 5:
+       if matched_domain_id and len(row.cells) >= 5:
+        # Force Vulnerability Scan + Pen Test totals into Operations Security
+        if matched_domain_id == "operations":
+            counts_map = domain_matrix.get("operations", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
+        # Force Source Code Review totals into System Acquisition, Development and Maintenance
+        elif matched_domain_id == "development":
+            counts_map = domain_matrix.get("development", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
+        else:
             counts_map = domain_matrix[matched_domain_id]
-            apply_text_styling_and_borders(row.cells[1], str(counts_map["high"]), center=True)
-            apply_text_styling_and_borders(row.cells[2], str(counts_map["medium"]), center=True)
-            apply_text_styling_and_borders(row.cells[3], str(counts_map["low"]), center=True)
-            apply_text_styling_and_borders(row.cells[4], str(counts_map["aoi"]), center=True)
-            continue
-            
+    
+        apply_text_styling_and_borders(row.cells[1], str(counts_map["high"]), center=True)
+        apply_text_styling_and_borders(row.cells[2], str(counts_map["medium"]), center=True)
+        apply_text_styling_and_borders(row.cells[3], str(counts_map["low"]), center=True)
+        apply_text_styling_and_borders(row.cells[4], str(counts_map["aoi"]), center=True)
+        continue
+                
         if "grandtotal" in row_header_clean and len(row.cells) >= 5:
             apply_text_styling_and_borders(row.cells[1], str(global_metrics["high"]), center=True)
             apply_text_styling_and_borders(row.cells[2], str(global_metrics["medium"]), center=True)
