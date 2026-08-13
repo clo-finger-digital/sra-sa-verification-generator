@@ -220,7 +220,7 @@
 
             <section class="bg-slate-800 rounded-lg p-6 border border-slate-700 shadow-xl space-y-4">
                 <h2 class="text-xl font-bold text-white mb-2">Mandatory Source Submissions</h2>
-                <p class="text-xs text-slate-400 mb-4">Note: The base template file must be placed in your repository root folder named exactly <code class="text-blue-400">new SRA report template.docx</code>.</p>
+                <p class="text-xs text-slate-400 mb-4">Note: The base template file must be placed in your repository root folder named exactly <code class="text-blue-400">new SRA template.docx</code>.</p>
                 
                 <div class="space-y-4">
                     <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
@@ -688,6 +688,26 @@ def insert_paragraph_after(paragraph, text, style=None):
     p_element.addnext(new_p._p)
     return new_p
 
+def format_asset_address(ip_raw, port_raw, default_proto="tcp"):
+    if not ip_raw:
+        return ""
+    ip_str = str(ip_raw).strip().lower()
+    port_str = str(port_raw).strip().lower() if port_raw else ""
+    
+    ip_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3})', ip_str)
+    clean_ip = ip_match.group(1) if ip_match else ip_str
+    
+    proto = default_proto
+    if "udp" in ip_str or "udp" in port_str: proto = "udp"
+    elif "tcp" in ip_str or "tcp" in port_str: proto = "tcp"
+    
+    port_match = re.search(r'(\d{1,5})', port_str)
+    clean_port = port_match.group(1) if port_match else re.sub(r'[^\d]', '', port_str)
+    
+    if clean_ip and clean_port:
+        return f"{clean_ip}{proto}{clean_port}"
+    return clean_ip
+
 def parse_and_cluster_sources(xlsx_path, prefix_filter, global_metrics):
     groups = {}
     wb = load_workbook(xlsx_path, data_only=True)
@@ -731,34 +751,11 @@ def parse_and_cluster_sources(xlsx_path, prefix_filter, global_metrics):
                 
             if not is_valid_finding:
                 continue
-
-            def format_asset_address(ip_raw, port_raw, default_proto="tcp"):
-                if not ip_raw:
-                    return ""
-                ip_str = str(ip_raw).strip().lower()
-                port_str = str(port_raw).strip().lower() if port_raw else ""
-                
-                # Extract clean IP
-                ip_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3})', ip_str)
-                clean_ip = ip_match.group(1) if ip_match else ip_str
-                
-                # Extract protocol
-                proto = default_proto
-                if "udp" in ip_str or "udp" in port_str: proto = "udp"
-                elif "tcp" in ip_str or "tcp" in port_str: proto = "tcp"
-                
-                # Extract numerical port
-                port_match = re.search(r'(\d{1,5})', port_str)
-                clean_port = port_match.group(1) if port_match else re.sub(r'[^\d]', '', port_str)
-                
-                if clean_ip and clean_port:
-                    return f"{clean_ip}{proto}{clean_port}"
-                return clean_ip
             
             if prefix_filter == "C":
                 asset_location = "System Codebase"
             else:
-                ip_lines = [line.strip() for line in raw_ip.split('\n') if line.strip()]
+                ip_lines = [line.strip() for line in raw_ip.split('\\n') if line.strip()]
                 resolved = [format_asset_address(ip, raw_port) for ip in ip_lines if ip]
                 asset_location = ", ".join(resolved) if resolved else sys_abbr
 
@@ -1514,12 +1511,12 @@ print("Security Audit Automation Pipeline Task Finalized Successfully.")
             const computedDateNumeric = `${dayNum}-${monthNum}-${yearText}`;
 
             logToSraConsole(`Date Sync: Active generation timestamp set to ${computedDateText}`);
-            logToSraConsole("Fetching 'new SRA report template.docx' via repository root route branch...");
+            logToSraConsole("Fetching 'new SRA template.docx' via repository root route branch...");
 
             try {
-                const templateData = await fetchTemplateFile("new SRA report template.docx");
-                try { pyodideModule.FS.unlink("new_SRA_report_template.docx"); } catch(e){}
-                pyodideModule.FS.writeFile("new_SRA_report_template.docx", templateData);
+                const templateData = await fetchTemplateFile("new SRA template.docx");
+                try { pyodideModule.FS.unlink("new_SRA_template.docx"); } catch(e){}
+                pyodideModule.FS.writeFile("new_SRA_template.docx", templateData);
             } catch (err) {
                 logToSraConsole("Fetch Error: " + err.message);
                 return;
@@ -1628,6 +1625,26 @@ def insert_paragraph_after(paragraph, text, style=None):
     p_element.addnext(new_p._p)
     return new_p
 
+def format_asset_address(ip_raw, port_raw, default_proto="tcp"):
+    if not ip_raw:
+        return ""
+    ip_str = str(ip_raw).strip().lower()
+    port_str = str(port_raw).strip().lower() if port_raw else ""
+    
+    ip_match = re.search(r'(\d{1,3}(?:\.\d{1,3}){3})', ip_str)
+    clean_ip = ip_match.group(1) if ip_match else ip_str
+    
+    proto = default_proto
+    if "udp" in ip_str or "udp" in port_str: proto = "udp"
+    elif "tcp" in ip_str or "tcp" in port_str: proto = "tcp"
+    
+    port_match = re.search(r'(\d{1,5})', port_str)
+    clean_port = port_match.group(1) if port_match else re.sub(r'[^\d]', '', port_str)
+    
+    if clean_ip and clean_port:
+        return f"{clean_ip}{proto}{clean_port}"
+    return clean_ip
+
 def parse_excel_followup_source(xlsx_path, prefix_filter, global_metrics, domain_matrix, forced_domain_id=None):
     groups = {}
     wb = load_workbook(xlsx_path, data_only=True)
@@ -1677,12 +1694,7 @@ def parse_excel_followup_source(xlsx_path, prefix_filter, global_metrics, domain
                 asset_location = "System Codebase"
             else:
                 ip_lines = [line.strip() for line in raw_ip.split('\\n') if line.strip()]
-                resolved = []
-                for ip in ip_lines:
-                    if raw_port and ":" not in ip and str(raw_port) not in ip:
-                        resolved.append(f"{ip}:{raw_port}")
-                    else:
-                        resolved.append(ip if ip else sys_abbr)
+                resolved = [format_asset_address(ip, raw_port) for ip in ip_lines if ip]
                 asset_location = ", ".join(resolved) if resolved else sys_abbr
 
             sev_title = severity.strip().title()
@@ -1838,7 +1850,7 @@ replacements = [
     ("*grand total items items*", total_vuln_str)
 ]
 
-doc = Document("new_SRA_report_template.docx")
+doc = Document("new_SRA_template.docx")
 
 def run_replace_mechanism(p, lookup_tuples):
     full_text = "".join(run.text for run in p.runs)
@@ -1976,21 +1988,19 @@ for table in doc.tables:
         row_header_clean = row.cells[0].text.lower().replace(" ", "").replace(",", "").replace("-", "")
         matched_domain_id = next((internal_id for prefix, internal_id in domain_mapping_keys if prefix in row_header_clean), None)
         
-       if matched_domain_id and len(row.cells) >= 5:
-        # Force Vulnerability Scan + Pen Test totals into Operations Security
-        if matched_domain_id == "operations":
-            counts_map = domain_matrix.get("operations", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
-        # Force Source Code Review totals into System Acquisition, Development and Maintenance
-        elif matched_domain_id == "development":
-            counts_map = domain_matrix.get("development", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
-        else:
-            counts_map = domain_matrix[matched_domain_id]
-    
-        apply_text_styling_and_borders(row.cells[1], str(counts_map["high"]), center=True)
-        apply_text_styling_and_borders(row.cells[2], str(counts_map["medium"]), center=True)
-        apply_text_styling_and_borders(row.cells[3], str(counts_map["low"]), center=True)
-        apply_text_styling_and_borders(row.cells[4], str(counts_map["aoi"]), center=True)
-        continue
+        if matched_domain_id and len(row.cells) >= 5:
+            if matched_domain_id == "operations":
+                counts_map = domain_matrix.get("operations", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
+            elif matched_domain_id == "development":
+                counts_map = domain_matrix.get("development", {"high": 0, "medium": 0, "low": 0, "aoi": 0})
+            else:
+                counts_map = domain_matrix[matched_domain_id]
+            
+            apply_text_styling_and_borders(row.cells[1], str(counts_map["high"]), center=True)
+            apply_text_styling_and_borders(row.cells[2], str(counts_map["medium"]), center=True)
+            apply_text_styling_and_borders(row.cells[3], str(counts_map["low"]), center=True)
+            apply_text_styling_and_borders(row.cells[4], str(counts_map["aoi"]), center=True)
+            continue
                 
         if "grandtotal" in row_header_clean and len(row.cells) >= 5:
             apply_text_styling_and_borders(row.cells[1], str(global_metrics["high"]), center=True)
