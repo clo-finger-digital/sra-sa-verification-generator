@@ -97,9 +97,9 @@
                         <label class="block text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">(2) Vulnerability Follow Up Plan Spreadsheet (.xlsx) *Required</label>
                         <input type="file" id="verification_file_plan" accept=".xlsx" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
                     </div>
-                    <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
-                        <label class="block text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">(3) Source Code Review Log Sheet (.xlsx) *Required</label>
-                        <input type="file" id="verification_file_codereview" accept=".xlsx" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
+                    <div class="p-4 bg-slate-950 border border-dashed border-slate-700 rounded-lg">
+                        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">(3) Source Code Review Log Sheet (.xlsx) (Optional)</label>
+                        <input type="file" id="verification_file_codereview" accept=".xlsx" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700 cursor-pointer">
                     </div>
                 </div>
 
@@ -231,9 +231,9 @@
                         <label class="block text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">(2) Vulnerability Follow Up Plan Spreadsheet (.xlsx) *Required</label>
                         <input type="file" id="sra_file_plan" accept=".xlsx" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
                     </div>
-                    <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
-                        <label class="block text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">(3) Source Code Review Log Sheet (.xlsx) *Required</label>
-                        <input type="file" id="sra_file_codereview" accept=".xlsx" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
+                    <div class="p-4 bg-slate-950 border border-dashed border-slate-700 rounded-lg">
+                        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">(3) Source Code Review Log Sheet (.xlsx) (Optional)</label>
+                        <input type="file" id="sra_file_codereview" accept=".xlsx" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-700 cursor-pointer">
                     </div>
                 </div>
 
@@ -569,9 +569,9 @@ js.updateUIFields("${prefix}", dept_name, dept_abbr, json.dumps(unique_systems))
             const iPlan = await getFileBytes("verification_file_plan");
             const iCode = await getFileBytes("verification_file_codereview");
 
-            if (!iWab || !iPlan || !iCode) {
-                logToVerificationConsole("Validation Failed: Compile aborted. WAB, Follow Up Plan, and Code Review sheets are all strictly required.");
-                alert("Please submit all three mandatory files to run generation.");
+            if (!iWab || !iPlan) {
+                logToVerificationConsole("Validation Failed: Compile aborted. WAB and Follow Up Plan spreadsheets are strictly required.");
+                alert("Please submit all required mandatory files to run generation.");
                 return;
             }
 
@@ -602,8 +602,13 @@ js.updateUIFields("${prefix}", dept_name, dept_abbr, json.dumps(unique_systems))
             try { pyodideModule.FS.unlink(iPlan.name); } catch(e) {}
             pyodideModule.FS.writeFile(iPlan.name, iPlan.data);
 
-            try { pyodideModule.FS.unlink(iCode.name); } catch(e) {}
-            pyodideModule.FS.writeFile(iCode.name, iCode.data);
+            if (iCode) {
+                try { pyodideModule.FS.unlink(iCode.name); } catch(e) {}
+                pyodideModule.FS.writeFile(iCode.name, iCode.data);
+                pyodideModule.globals.set("JS_CODE_NAME", iCode.name);
+            } else {
+                pyodideModule.globals.set("JS_CODE_NAME", null);
+            }
 
             pyodideModule.globals.set("JS_COMPANY_NAME", cName);
             pyodideModule.globals.set("JS_COMPANY_ABBREVIATION", cAbbr);
@@ -613,7 +618,6 @@ js.updateUIFields("${prefix}", dept_name, dept_abbr, json.dumps(unique_systems))
             pyodideModule.globals.set("JS_TESTEE_ABBREVIATION", tAbbr);
             pyodideModule.globals.set("JS_WAB_NAME", iWab.name);
             pyodideModule.globals.set("JS_PLAN_NAME", iPlan.name);
-            pyodideModule.globals.set("JS_CODE_NAME", iCode.name);
             pyodideModule.globals.set("JS_COMPUTED_DATE_TEXT", computedDateText);
             pyodideModule.globals.set("JS_COMPUTED_DATE_NUMERIC", computedDateNumeric);
 
@@ -707,6 +711,8 @@ def format_asset_address(ip_raw, port_raw, default_proto="tcp"):
     return clean_ip
 
 def parse_and_cluster_sources(xlsx_path, prefix_filter, global_metrics):
+    if not xlsx_path or not os.path.exists(xlsx_path):
+        return []
     groups = {}
     wb = load_workbook(xlsx_path, data_only=True)
     sheets_to_process = wb.sheetnames
@@ -790,7 +796,7 @@ global_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
 
 v_vulnerabilities = parse_and_cluster_sources(JS_PLAN_NAME, "V", global_metrics)
 a_vulnerabilities = parse_and_cluster_sources(JS_PLAN_NAME, "A", global_metrics)
-c_vulnerabilities = parse_and_cluster_sources(JS_CODE_NAME, "C", global_metrics)
+c_vulnerabilities = parse_and_cluster_sources(JS_CODE_NAME, "C", global_metrics) if JS_CODE_NAME else []
 
 total_findings_count = sum(global_metrics.values())
 
@@ -1493,9 +1499,9 @@ print("Security Audit Automation Pipeline Task Finalized Successfully.")
             const planFile = await getFileBytes("sra_file_plan");
             const codeFile = await getFileBytes("sra_file_codereview");
 
-            if (!wabFile || !planFile || !codeFile) {
-                logToSraConsole("Validation Failed: Compile aborted. WAB, Follow Up Plan, and Code Review sheets are all strictly required.");
-                alert("Please submit all three mandatory files to run generation.");
+            if (!wabFile || !planFile) {
+                logToSraConsole("Validation Failed: Compile aborted. WAB and Follow Up Plan spreadsheets are strictly required.");
+                alert("Please submit all required mandatory files to run generation.");
                 return;
             }
 
@@ -1526,8 +1532,13 @@ print("Security Audit Automation Pipeline Task Finalized Successfully.")
             try { pyodideModule.FS.unlink(planFile.name); } catch(e) {}
             pyodideModule.FS.writeFile(planFile.name, planFile.data);
 
-            try { pyodideModule.FS.unlink(codeFile.name); } catch(e) {}
-            pyodideModule.FS.writeFile(codeFile.name, codeFile.data);
+            if (codeFile) {
+                try { pyodideModule.FS.unlink(codeFile.name); } catch(e) {}
+                pyodideModule.FS.writeFile(codeFile.name, codeFile.data);
+                pyodideModule.globals.set("JS_CODE_NAME", codeFile.name);
+            } else {
+                pyodideModule.globals.set("JS_CODE_NAME", null);
+            }
 
             pyodideModule.globals.set("JS_COMPANY_NAME", cName);
             pyodideModule.globals.set("JS_COMPANY_ABBREVIATION", cAbbr);
@@ -1537,7 +1548,6 @@ print("Security Audit Automation Pipeline Task Finalized Successfully.")
             pyodideModule.globals.set("JS_TESTEE_ABBREVIATION", tAbbr);
             pyodideModule.globals.set("JS_WAB_NAME", wabFile.name);
             pyodideModule.globals.set("JS_PLAN_NAME", planFile.name);
-            pyodideModule.globals.set("JS_CODE_NAME", codeFile.name);
             pyodideModule.globals.set("JS_COMPUTED_DATE_TEXT", computedDateText);
             pyodideModule.globals.set("JS_COMPUTED_DATE_NUMERIC", computedDateNumeric);
 
@@ -1644,6 +1654,8 @@ def format_asset_address(ip_raw, port_raw, default_proto="tcp"):
     return clean_ip
 
 def parse_excel_followup_source(xlsx_path, prefix_filter, global_metrics, domain_matrix, forced_domain_id=None):
+    if not xlsx_path or not os.path.exists(xlsx_path):
+        return []
     groups = {}
     wb = load_workbook(xlsx_path, data_only=True)
     sheets_to_process = wb.sheetnames
@@ -1749,7 +1761,7 @@ domain_matrix = {k: {"high": 0, "medium": 0, "low": 0, "aoi": 0} for k in [
 
 v_vulnerabilities = parse_excel_followup_source(JS_PLAN_NAME, "V", global_metrics, domain_matrix, forced_domain_id="operations")
 a_vulnerabilities = parse_excel_followup_source(JS_PLAN_NAME, "A", global_metrics, domain_matrix, forced_domain_id="operations")
-c_vulnerabilities = parse_excel_followup_source(JS_CODE_NAME, "C", global_metrics, domain_matrix, forced_domain_id="development")
+c_vulnerabilities = parse_excel_followup_source(JS_CODE_NAME, "C", global_metrics, domain_matrix, forced_domain_id="development") if JS_CODE_NAME else []
 
 system_description_text = ""
 security_requirements = []
